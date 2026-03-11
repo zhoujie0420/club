@@ -1,0 +1,383 @@
+{
+  "gridSize": 50,
+  "seats": [
+    {
+      "id": "DJ_STAGE",
+      "name": "DJ STAGE",
+      "type": "stage",
+      "status": "available",
+      "col": 8,
+      "row": 1,
+      "width": 300,
+      "height": 50,
+      "isStage": true
+    },
+    {
+      "id": "STAGE",
+      "name": "STAGE",
+      "type": "stage",
+      "status": "available",
+      "col": 6,
+      "row": 3,
+      "width": 200,
+      "height": 40,
+      "isStage": true
+    },
+    {
+      "id": "V10",
+      "name": "V10",
+      "type": "vip",
+      "status": "available",
+      "col": 3,
+      "row": 5,
+      "width": 60,
+      "height": 60,
+      "shape": "circle"
+    },
+    {
+      "id": "V06",
+      "name": "V06",
+      "type": "vip",
+      "status": "available",
+      "col": 12,
+      "row": 5,
+      "width": 60,
+      "height": 60,
+      "shape": "circle"
+    },
+    {
+      "id": "V18",
+      "name": "V18",
+      "type": "vip",
+      "status": "available",
+      "col": 2,
+      "row": 7,
+      "width": 60,
+      "height": 60,
+      "shape": "circle"
+    },
+    {
+      "id": "V12",
+      "name": "V12",
+      "type": "vip",
+      "status": "available",
+      "col": 13,
+      "row": 7,
+      "width": 60,
+      "height": 60,
+      "shape": "circle"
+    },
+    {
+      "id": "H16",
+      "name": "H16",
+      "type": "high",
+      "status": "available",
+      "col": 0,
+      "row": 6,
+      "width": 50,
+      "height": 80,
+      "vertical": true
+    },
+    {
+      "id": "H17",
+      "name": "H17",
+      "type": "high",
+      "status": "available",
+      "col": 0,
+      "row": 8,
+      "width": 50,
+      "height": 80,
+      "vertical": true
+    },
+    {
+      "id": "H18",
+      "name": "H18",
+      "type": "high",
+      "status": "available",
+      "col": 0,
+      "row": 10,
+      "width": 50,
+      "height": 80,
+      "vertical": true
+    },
+    {
+      "id": "H19",
+      "name": "H19",
+      "type": "high",
+      "status": "available",
+      "col": 0,
+      "row": 12,
+      "width": 50,
+      "height": 80,
+      "vertical": true
+    },
+    {
+      "id": "H08",
+      "name": "H08",
+      "type": "high",
+      "status": "available",
+      "col": 14,
+      "row": 6,
+      "width": 50,
+      "height": 80,
+      "vertical": true
+    },
+    {
+      "id": "H09",
+      "name": "H09",
+      "type": "high",
+      "status": "available",
+      "col": 14,
+      "row": 8,
+      "width": 50,
+      "height": 80,
+      "vertical": true
+    },
+    {
+      "id": "H10",
+      "name": "H10",
+      "type": "high",
+      "status": "available",
+      "col": 14,
+      "row": 10,
+      "width": 50,
+      "height": 80,
+      "vertical": true
+    },
+    {
+      "id": "H11",
+      "name": "H11",
+      "type": "high",
+      "status": "available",
+      "col": 14,
+      "row": 12,
+      "width": 50,
+      "height": 80,
+      "vertical": true
+    },
+    {
+      "id": "H12",
+      "name": "H12",
+      "type": "high",
+      "status": "available",
+      "col": 14,
+      "row": 14,
+      "width": 50,
+      "height": 80,
+      "vertical": true
+    },
+    {
+      "id": "L02",
+      "name": "L02",
+      "type": "lounge",
+      "status": "available",
+      "col": 5,
+      "row": 6,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L03",
+      "name": "L03",
+      "type": "lounge",
+      "status": "available",
+      "col": 5,
+      "row": 8,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L05",
+      "name": "L05",
+      "type": "lounge",
+      "status": "available",
+      "col": 5,
+      "row": 10,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L06",
+      "name": "L06",
+      "type": "lounge",
+      "status": "available",
+      "col": 5,
+      "row": 12,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L07",
+      "name": "L07",
+      "type": "lounge",
+      "status": "available",
+      "col": 7,
+      "row": 6,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L08",
+      "name": "L08",
+      "type": "lounge",
+      "status": "available",
+      "col": 7,
+      "row": 8,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L09",
+      "name": "L09",
+      "type": "lounge",
+      "status": "available",
+      "col": 7,
+      "row": 10,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L10",
+      "name": "L10",
+      "type": "lounge",
+      "status": "available",
+      "col": 7,
+      "row": 12,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L12",
+      "name": "L12",
+      "type": "lounge",
+      "status": "available",
+      "col": 9,
+      "row": 6,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L13",
+      "name": "L13",
+      "type": "lounge",
+      "status": "available",
+      "col": 9,
+      "row": 8,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L15",
+      "name": "L15",
+      "type": "lounge",
+      "status": "available",
+      "col": 9,
+      "row": 10,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L16",
+      "name": "L16",
+      "type": "lounge",
+      "status": "available",
+      "col": 9,
+      "row": 12,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L17",
+      "name": "L17",
+      "type": "lounge",
+      "status": "available",
+      "col": 9,
+      "row": 14,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L18",
+      "name": "L18",
+      "type": "lounge",
+      "status": "available",
+      "col": 9,
+      "row": 16,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "L19",
+      "name": "L19",
+      "type": "lounge",
+      "status": "available",
+      "col": 9,
+      "row": 18,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "V08",
+      "name": "V08",
+      "type": "vip",
+      "status": "available",
+      "col": 6,
+      "row": 17,
+      "width": 60,
+      "height": 60,
+      "shape": "circle"
+    },
+    {
+      "id": "V09",
+      "name": "V09",
+      "type": "vip",
+      "status": "available",
+      "col": 9,
+      "row": 17,
+      "width": 60,
+      "height": 60,
+      "shape": "circle"
+    },
+    {
+      "id": "S01",
+      "name": "S01",
+      "type": "standing",
+      "status": "available",
+      "col": 4,
+      "row": 19,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "S02",
+      "name": "S02",
+      "type": "standing",
+      "status": "available",
+      "col": 7,
+      "row": 19,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "S03",
+      "name": "S03",
+      "type": "standing",
+      "status": "available",
+      "col": 11,
+      "row": 19,
+      "width": 60,
+      "height": 60
+    },
+    {
+      "id": "BAR",
+      "name": "BAR",
+      "type": "bar",
+      "status": "available",
+      "col": 7,
+      "row": 21,
+      "width": 300,
+      "height": 40,
+      "isBar": true
+    }
+  ]
+}
