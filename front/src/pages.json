@@ -16,6 +16,14 @@
 			}
 		},
 		{
+			"path": "pages/tables/index",
+			"style": {
+				"navigationBarTitleText": "实时台位",
+				"navigationBarBackgroundColor": "#F5F5F5",
+				"navigationBarTextStyle": "black"
+			}
+		},
+		{
 			"path": "pages/orders/index",
 			"style": {
 				"navigationBarTitleText": "我的订单",
