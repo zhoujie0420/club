@@ -14,12 +14,28 @@
 				"navigationBarTextStyle": "white",
 				"backgroundColor": "#000000"
 			}
+		},
+		{
+			"path": "pages/orders/index",
+			"style": {
+				"navigationBarTitleText": "我的订单",
+				"navigationBarBackgroundColor": "#0a0a0f",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/member/index",
+			"style": {
+				"navigationBarTitleText": "会员中心",
+				"navigationBarBackgroundColor": "#0a0a0f",
+				"navigationBarTextStyle": "white"
+			}
 		}
 	],
 	"globalStyle": {
-		"navigationBarTextStyle": "black",
-		"navigationBarTitleText": "uni-app",
-		"navigationBarBackgroundColor": "#F8F8F8",
-		"backgroundColor": "#F8F8F8"
+		"navigationBarTextStyle": "white",
+		"navigationBarTitleText": "HOLE CLUB",
+		"navigationBarBackgroundColor": "#0a0a0f",
+		"backgroundColor": "#0a0a0f"
 	}
 }

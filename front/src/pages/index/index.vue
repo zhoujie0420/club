@@ -1,146 +1,20 @@
 <template>
-  <view class="container">
-    <!-- 顶部标题 -->
-    <view class="header">
-      <text class="title">HOLE CLUB</text>
-      <text class="subtitle">夜店订台系统</text>
+  <view class="page">
+    <view class="hero">
+      <text class="eyebrow">WUXI · NIGHT EXPERIENCE</text><text class="brand">HOLE</text><text class="club">CLUB</text>
+      <text class="tagline">今晚，给自己留一个位置。</text><button class="primary" @click="go('/pages/booking/index')">立即订台</button>
     </view>
-
-    <!-- 导航菜单 -->
-    <view class="menu-container">
-      <view class="menu-item" @click="goToBooking">
-        <view class="icon booking-icon"></view>
-        <text class="menu-text">房台状态</text>
-      </view>
-
-      <view class="menu-item">
-        <view class="icon order-icon"></view>
-        <text class="menu-text">我的订单</text>
-      </view>
-
-      <view class="menu-item">
-        <view class="icon history-icon"></view>
-        <text class="menu-text">消费记录</text>
-      </view>
-
-      <view class="menu-item">
-        <view class="icon member-icon"></view>
-        <text class="menu-text">会员中心</text>
-      </view>
+    <view class="section-head"><text class="section-title">服务中心</text><text class="section-sub">SERVICE</text></view>
+    <view class="grid">
+      <view class="card feature" @click="go('/pages/booking/index')"><text class="number">01</text><text class="card-title">房台状态</text><text class="desc">实时查看并选择空闲台位</text></view>
+      <view class="card" @click="go('/pages/orders/index')"><text class="number">02</text><text class="card-title">我的订单</text><text class="desc">预订记录与订单管理</text></view>
+      <view class="card" @click="go('/pages/orders/index')"><text class="number">03</text><text class="card-title">消费记录</text><text class="desc">查看历史到店与消费</text></view>
+      <view class="card" @click="go('/pages/member/index')"><text class="number">04</text><text class="card-title">会员中心</text><text class="desc">权益、等级与专属礼遇</text></view>
     </view>
-
-    <!-- 底部信息 -->
-    <view class="footer">
-      <text class="footer-text">欢迎光临HOLE CLUB</text>
-    </view>
+    <view class="footer"><text>OPEN DAILY 20:00 — 04:00</text><text>HOLE CLUB · MVP</text></view>
   </view>
 </template>
-
-<script setup lang="ts">
-const goToBooking = () => {
-  uni.navigateTo({
-    url: '/pages/booking/index'
-  })
-}
-</script>
-
-<style>
-.container {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background: linear-gradient(to bottom, #1a1a2e, #16213e);
-  color: white;
-  padding: 40rpx;
-}
-
-.header {
-  text-align: center;
-  margin-bottom: 100rpx;
-  margin-top: 100rpx;
-}
-
-.title {
-  font-size: 60rpx;
-  font-weight: bold;
-  display: block;
-  margin-bottom: 20rpx;
-  background: linear-gradient(45deg, #ff416c, #ff4b2b);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.subtitle {
-  font-size: 32rpx;
-  color: #aaa;
-  display: block;
-}
-
-.menu-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 40rpx;
-  flex: 1;
-}
-
-.menu-item {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 20rpx;
-  padding: 60rpx 20rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(10px);
-  border: 1rpx solid rgba(255, 255, 255, 0.2);
-  transition: all 0.3s ease;
-}
-
-.menu-item:active {
-  transform: scale(0.95);
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.icon {
-  width: 100rpx;
-  height: 100rpx;
-  border-radius: 50%;
-  margin-bottom: 30rpx;
-  background: linear-gradient(45deg, #6a11cb, #2575fc);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 50rpx;
-}
-
-.booking-icon {
-  background: linear-gradient(45deg, #ff416c, #ff4b2b);
-}
-
-.order-icon {
-  background: linear-gradient(45deg, #11998e, #38ef7d);
-}
-
-.history-icon {
-  background: linear-gradient(45deg, #6a11cb, #2575fc);
-}
-
-.member-icon {
-  background: linear-gradient(45deg, #f7971e, #ffd200);
-}
-
-.menu-text {
-  font-size: 32rpx;
-  font-weight: bold;
-}
-
-.footer {
-  text-align: center;
-  margin-top: 60rpx;
-}
-
-.footer-text {
-  color: #aaa;
-  font-size: 28rpx;
-}
+<script setup lang="ts">const go=(url:string)=>uni.navigateTo({url})</script>
+<style scoped>
+.page{min-height:100vh;background:#08080c;color:#f5f2e9;padding:0 36rpx 60rpx;box-sizing:border-box}.hero{min-height:650rpx;display:flex;flex-direction:column;justify-content:center;border-bottom:1px solid #2d2b25}.eyebrow,.section-sub{font-size:20rpx;letter-spacing:6rpx;color:#b6a77b}.brand,.club{display:block;font-size:150rpx;font-weight:900;line-height:.78;letter-spacing:-8rpx}.club{color:transparent;-webkit-text-stroke:2rpx #b6a77b;margin-left:100rpx}.tagline{margin:60rpx 0 34rpx;color:#aaa49a;font-size:28rpx}.primary{margin:0;width:260rpx;background:#c7b276;color:#09090d;border-radius:0;font-weight:700;font-size:28rpx}.section-head{display:flex;justify-content:space-between;align-items:end;padding:70rpx 0 30rpx}.section-title{font-size:42rpx;font-weight:700}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18rpx}.card{min-height:220rpx;border:1px solid #302f2b;padding:28rpx;display:flex;flex-direction:column;background:#101015}.feature{background:#c7b276;color:#09090d}.number{font-size:20rpx;opacity:.6}.card-title{font-size:32rpx;font-weight:700;margin-top:auto}.desc{font-size:21rpx;opacity:.62;margin-top:12rpx}.footer{border-top:1px solid #2d2b25;margin-top:60rpx;padding-top:28rpx;display:flex;justify-content:space-between;color:#666;font-size:18rpx}
 </style>

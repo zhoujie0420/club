@@ -6,6 +6,20 @@
       <text class="subtitle">Location Map</text>
     </view>
 
+    <view class="booking-info">
+      <picker mode="date" :value="bookingDate" @change="onDateChange">
+        <view class="field"><text class="field-label">到店日期</text><text>{{ bookingDate }} ›</text></view>
+      </picker>
+      <view class="field">
+        <text class="field-label">到店场次</text>
+        <view class="sessions"><text v-for="item in sessions" :key="item" :class="['session',{active:session===item}]" @click="session=item">{{item}}</text></view>
+      </view>
+      <view class="guest-fields">
+        <input v-model="guestName" class="input" placeholder="预订人姓名" placeholder-class="placeholder" />
+        <input v-model="phone" class="input" type="number" maxlength="11" placeholder="手机号码" placeholder-class="placeholder" />
+      </view>
+    </view>
+
     <!-- 座位地图容器 -->
     <view class="venue-map-container">
       <movable-area class="venue-map" :scale-area="false">
@@ -67,6 +81,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import seatConfig from './seat-config.json'
+import { createOrder } from '../../services/orders'
 
 // 定义座位状态类型
 type SeatStatus = 'available' | 'occupied' | 'selected'
@@ -138,6 +153,13 @@ console.log('处理后的座位数据:', seats.value.map(s => ({id: s.id, name: 
 
 // 选中的座位
 const selectedSeats = ref<Seat[]>([])
+const tomorrow = new Date(Date.now() + 86400000)
+const bookingDate = ref(tomorrow.toISOString().slice(0, 10))
+const sessions = ['20:00', '22:30', '00:30']
+const session = ref(sessions[0])
+const guestName = ref('')
+const phone = ref('')
+const onDateChange = (event: any) => bookingDate.value = event.detail.value
 
 // 获取座位样式
 const getSeatStyle = (seat: Seat) => {
@@ -167,13 +189,12 @@ const handleSeatSelect = (seat: Seat) => {
 // 确认定座
 const confirmBooking = () => {
   if (selectedSeats.value.length === 0) return
-
-  // 这里可以添加确认订座的逻辑
-  console.log('确认订座:', selectedSeats.value)
-  uni.showToast({
-    title: `已选择 ${selectedSeats.value.length} 个座位`,
-    icon: 'success'
-  })
+  if (!guestName.value.trim() || !/^1\d{10}$/.test(phone.value)) {
+    uni.showToast({ title: '请填写姓名和正确手机号', icon: 'none' })
+    return
+  }
+  const order = createOrder({ seats:selectedSeats.value.map(s=>s.name), date:bookingDate.value, session:session.value, guestName:guestName.value.trim(), phone:phone.value })
+  uni.showModal({ title:'预订成功', content:`订单 ${order.id} 已生成`, showCancel:false, success:()=>uni.redirectTo({url:'/pages/orders/index'}) })
 }
 
 // 页面加载完成后计算实际尺寸
@@ -195,6 +216,7 @@ onMounted(() => {
   text-align: center;
   margin-bottom: 30rpx;
 }
+.booking-info{background:#111116;border:1rpx solid #302f2b;margin-bottom:24rpx;padding:0 26rpx}.field{min-height:92rpx;display:flex;align-items:center;justify-content:space-between;border-bottom:1rpx solid #26252a;font-size:25rpx}.field-label{color:#777}.sessions{display:flex;gap:10rpx}.session{padding:10rpx 15rpx;border:1rpx solid #37353b;color:#888}.session.active{background:#c7b276;color:#08080c;border-color:#c7b276}.guest-fields{display:grid;grid-template-columns:1fr 1fr;gap:18rpx;padding:20rpx 0}.input{height:72rpx;border:1rpx solid #343239;padding:0 18rpx;color:#fff;font-size:24rpx}.placeholder{color:#555}
 
 .title {
   font-size: 48rpx;
