@@ -10,4 +10,10 @@ onHide(() => {
   console.log("App Hide");
 });
 </script>
-<style></style>
+<style>
+html,body,#app,uni-app{min-height:100%;background:#09090d;margin:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#f5f3ed}
+uni-page-body{display:block;max-width:480px;min-height:100vh;margin:0 auto;background:#0d0d12;box-shadow:0 0 80px rgba(0,0,0,.55)}
+button::after{border:none}
+*{box-sizing:border-box}
+</style>
