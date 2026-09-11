@@ -25,6 +25,8 @@ jobs:
       - run: npm run build:h5
         working-directory: front
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: front/dist/build/h5
