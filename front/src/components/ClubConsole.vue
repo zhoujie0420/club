@@ -44,7 +44,7 @@
         ><text>{{ state?.businessDate || "—" }} 营业日</text></view
       >
       <view v-if="error" class="error banner"
-        >{{ error }}<text @click="refresh">重新加载 ↻</text></view
+        >{{ error }}<text @click="() => refresh()">重新加载 ↻</text></view
       >
       <view v-if="!state" class="panel placeholder">{{
         loading ? "正在加载营业数据…" : "暂无数据，请点击重新加载"
@@ -123,7 +123,7 @@
               :value="tableDate"
               @change="tableDate = $event.detail.value"
               ><button>{{ tableDate }} ▾</button></picker
-            ><button @click="refresh">
+            ><button @click="() => refresh()">
               {{ loading ? "刷新中…" : "刷新 ↻" }}
             </button></view
           >
