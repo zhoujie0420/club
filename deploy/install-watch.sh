@@ -3,9 +3,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="${CLUB_ROOT:-$HOME/club-test}"
-mkdir -p "$DEST" "$HOME/.config/systemd/user"
+WATCH="${CLUB_WATCH_DIR:-$HOME/club-watch}"
+mkdir -p "$DEST" "$WATCH" "$HOME/.config/systemd/user"
 install -m 755 "$ROOT/deploy/apply-release.sh" "$DEST/apply-release.sh"
-install -m 755 "$ROOT/deploy/watch-release.sh" "$DEST/watch-release.sh"
+install -m 755 "$ROOT/deploy/watch-release.sh" "$WATCH/watch-release.sh"
 install -m 644 "$ROOT/deploy/club-watch.service" "$HOME/.config/systemd/user/club-watch.service"
 install -m 644 "$ROOT/deploy/club-watch.timer" "$HOME/.config/systemd/user/club-watch.timer"
 systemctl --user daemon-reload

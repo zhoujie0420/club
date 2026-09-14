@@ -101,7 +101,7 @@ npx playwright test
 - 进程：`systemctl --user status club-test.service`
 - 数据：`club.db`（部署**不覆盖** `club.db` / `service.env`）
 - 预置身份：店长、销售小林、前台小周、服务员阿杰，口令 `holeclub`
-- 发布：push `main` → GitHub Actions 测试并发布滚动 tag `club-test` → my-cloud `club-watch.timer` 每分钟拉取并替换 `club-api` 与 `web/`
+- 发布：push `main` → GitHub Actions 测试并发布滚动 tag `club-test` → my-cloud `club-watch.timer` 约每 2 分钟拉取并替换 `club-api` 与 `web/`
 
 应急手工发布（Actions 不可用时）：`bash deploy/release.sh`。本机验收：`CLUB_TEST_URL=http://115.191.3.226:18080 node deploy/verify-remote.mjs`。细节见 [TRD 部署](docs/TRD.md#部署)。
 

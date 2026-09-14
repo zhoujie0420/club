@@ -46,7 +46,9 @@ if [[ -d "$STAGE/web" ]]; then
   rm -rf "$CLUB_ROOT/web.next"
   cp -R "$STAGE/web" "$CLUB_ROOT/web.next"
 fi
-for f in apply-release.sh watch-release.sh backup-sqlite.sh pack-release.sh; do
+# Operator scripts (watch-release, systemd units) live in ~/club-watch
+# so a release cannot overwrite the puller with a broken copy.
+for f in apply-release.sh backup-sqlite.sh; do
   if [[ -f "$STAGE/$f" ]]; then
     install -m 755 "$STAGE/$f" "$CLUB_ROOT/$f"
   fi

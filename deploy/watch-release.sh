@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Poll the rolling GitHub release and apply it when REVISION changes.
+# Poll the rolling GitHub release via the API (github.com download URLs
+# time out from this China host) and apply it when REVISION changes.
 set -euo pipefail
 
 CLUB_ROOT="${CLUB_ROOT:-/home/deploy/club-test}"
 TAG="${CLUB_RELEASE_TAG:-club-test}"
 REPO="${CLUB_GITHUB_REPO:-zhoujie0420/club}"
-BASE="https://github.com/${REPO}/releases/download/${TAG}"
+API="https://api.github.com/repos/${REPO}/releases/tags/${TAG}"
 LOG="${CLUB_WATCH_LOG:-$CLUB_ROOT/watch.log}"
 LOCK="${CLUB_WATCH_LOCK:-$CLUB_ROOT/.watch.lock}"
+UA="club-watch/1.0"
 
 mkdir -p "$CLUB_ROOT"
 exec 9>"$LOCK"
@@ -27,13 +29,38 @@ digest() {
   fi
 }
 
+asset_url() {
+  python3 -c 'import json,sys
+name, path = sys.argv[1], sys.argv[2]
+rel = json.load(open(path, encoding="utf-8"))
+assets = {a.get("name"): a.get("url") for a in rel.get("assets") or []}
+url = assets.get(name) or ""
+if not url:
+    raise SystemExit(2)
+print(url)
+' "$1" "$TMP/release.json"
+}
+
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/club-watch.XXXXXX")"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
-if ! curl -fsSL --max-time 45 -A 'club-watch/1.0' -H 'Cache-Control: no-cache' \
-  -o "$TMP/REVISION" "$BASE/REVISION"; then
-  log "no release yet or fetch failed ($BASE/REVISION)"
+if ! curl -fsSL --max-time 30 -A "$UA" -H 'Accept: application/vnd.github+json' \
+  -o "$TMP/release.json" "$API"; then
+  log "no release yet or API fetch failed ($API)"
+  exit 0
+fi
+
+download() {
+  local name="$1" dest="$2" url
+  url="$(asset_url "$name" < "$TMP/release.json")"
+  curl -fsSL --max-time 180 -A "$UA" -L \
+    -H 'Accept: application/octet-stream' \
+    -o "$dest" "$url"
+}
+
+if ! download REVISION "$TMP/REVISION"; then
+  log "REVISION asset missing"
   exit 0
 fi
 
@@ -47,10 +74,8 @@ if [[ -z "$new" || "$new" == "$old" ]]; then
 fi
 
 log "downloading $new (was ${old:-none})"
-curl -fsSL --max-time 180 -A 'club-watch/1.0' -H 'Cache-Control: no-cache' \
-  -o "$TMP/club-test.tar.gz" "$BASE/club-test.tar.gz"
-curl -fsSL --max-time 45 -A 'club-watch/1.0' -H 'Cache-Control: no-cache' \
-  -o "$TMP/club-test.tar.gz.sha256" "$BASE/club-test.tar.gz.sha256"
+download club-test.tar.gz "$TMP/club-test.tar.gz"
+download club-test.tar.gz.sha256 "$TMP/club-test.tar.gz.sha256"
 
 got="$(digest "$TMP/club-test.tar.gz")"
 want="$(awk '{print $1}' "$TMP/club-test.tar.gz.sha256" | tr -d '[:space:]')"
