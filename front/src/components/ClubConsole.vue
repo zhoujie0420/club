@@ -1,5 +1,5 @@
 <template>
-  <view class="console">
+  <view class="console" :style="safePad">
     <view v-if="!authenticated" class="login-panel">
       <text class="eyebrow">HOLE CLUB / STAFF CONSOLE</text
       ><text class="login-title">今夜，从这里开始。</text
@@ -35,7 +35,9 @@
         ><view
           ><text class="eyebrow">HOLE CLUB</text
           ><text class="page-title">{{ titles[tab] }}</text></view
-        ><button class="avatar" @click="tab = 'mine'">HC</button></view
+        ><button class="avatar" :style="avatarPad" @click="tab = 'mine'">
+          HC
+        </button></view
       >
       <view class="connection"
         ><text>{{ error ? "连接异常" : "● 共享测试环境" }}</text
@@ -303,10 +305,8 @@
         </button></view
       >
     </template>
-    <view
-      v-if="selectedTable"
-      class="overlay"
-      @click.self="selectedTable = null"
+    <view v-if="selectedTable" class="overlay"
+      ><view class="overlay-mask" @click="selectedTable = null"></view
       ><view class="sheet"
         ><view class="sheet-heading"
           ><text>{{ selectedTable.id }} · {{ selectedTable.zone }}</text
@@ -339,6 +339,7 @@
       ></view
     >
     <view v-if="booking" class="overlay"
+      ><view class="overlay-mask" @click="!busy && (booking = false)"></view
       ><view class="sheet tall"
         ><view class="sheet-heading"
           ><text>创建预订</text
@@ -428,6 +429,7 @@
       ></view
     >
     <view v-if="selected" class="overlay"
+      ><view class="overlay-mask" @click="closeOrder"></view
       ><view class="sheet tall"
         ><view class="sheet-heading"
           ><text>{{ selected.tableId }} · {{ selected.customerName }}</text
@@ -637,6 +639,9 @@ const tab = ref<keyof typeof titles>("home"),
   busy = ref(false),
   loading = ref(false),
   error = ref(""),
+  headerInset = ref({ top: 0, right: 0 }),
+  keyboardInset = ref(0),
+  appVisible = ref(true),
   state = ref<State | null>(null),
   selected = ref<Order | null>(null),
   selectedTable = ref<Table | null>(null),
@@ -1399,21 +1404,67 @@ function confirmAction(
     },
   });
 }
+const safePad = computed(() => ({
+  paddingTop: `${24 + headerInset.value.top}px`,
+  paddingRight: `${18 + headerInset.value.right}px`,
+  paddingBottom: `${100 + keyboardInset.value}px`,
+}));
+const avatarPad = computed(() =>
+  headerInset.value.right ? { marginRight: `${headerInset.value.right}px` } : {},
+);
+function applyCapsule() {
+  if (typeof document !== "undefined") return;
+  try {
+    const sys = uni.getSystemInfoSync();
+    const status = Number(sys.statusBarHeight || 0);
+    let top = status;
+    let right = 0;
+    const menu = uni.getMenuButtonBoundingClientRect();
+    if (menu && menu.height) {
+      top = menu.bottom + 8;
+      right = Math.max(0, Number(sys.windowWidth || 0) - menu.left + 8);
+    }
+    headerInset.value = { top, right };
+  } catch {
+    headerInset.value = { top: 0, right: 0 };
+  }
+}
+function onAppShown() {
+  appVisible.value = true;
+  if (authenticated.value) refresh("poll");
+}
+function onAppHidden() {
+  appVisible.value = false;
+}
+function onKeyboard(res: { height: number }) {
+  keyboardInset.value = Math.max(0, Number(res.height || 0));
+}
 let timer: ReturnType<typeof setInterval>;
 onMounted(() => {
   uni.$on("club-session-cleared", dropSession);
+  applyCapsule();
+  uni.onAppShow(onAppShown);
+  uni.onAppHide(onAppHidden);
+  if (typeof uni.onKeyboardHeightChange === "function")
+    uni.onKeyboardHeightChange(onKeyboard);
   loadLoginOptions();
   refresh();
   timer = setInterval(() => {
+    if (!appVisible.value) return;
     if (
-      typeof document === "undefined" ||
-      document.visibilityState === "visible"
+      typeof document !== "undefined" &&
+      document.visibilityState !== "visible"
     )
-      refresh("poll");
+      return;
+    refresh("poll");
   }, 5000);
 });
 onUnmounted(() => {
   uni.$off("club-session-cleared", dropSession);
+  if (typeof uni.offAppShow === "function") uni.offAppShow(onAppShown);
+  if (typeof uni.offAppHide === "function") uni.offAppHide(onAppHidden);
+  if (typeof uni.offKeyboardHeightChange === "function")
+    uni.offKeyboardHeightChange(onKeyboard);
   clearInterval(timer);
   clearTimeout(orderSearchTimer);
 });
@@ -1682,6 +1733,14 @@ onUnmounted(() => {
   padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
   z-index: 10;
 }
+/* #ifndef H5 */
+.tabbar {
+  left: 0;
+  right: 0;
+  transform: none;
+  width: 100%;
+}
+/* #endif */
 .tabbar button {
   background: none;
   color: #838894;
@@ -1863,12 +1922,18 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: #000a;
   display: flex;
   align-items: flex-end;
   justify-content: center;
 }
+.overlay-mask {
+  position: absolute;
+  inset: 0;
+  background: #000a;
+}
 .sheet {
+  position: relative;
+  z-index: 1;
   box-sizing: border-box;
   width: min(480px, 100%);
   background: #1b1d22;
