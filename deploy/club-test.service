@@ -1,0 +1,16 @@
+[Unit]
+Description=HOLE CLUB test console
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/club-test
+EnvironmentFile=%h/club-test/service.env
+ExecStart=%h/club-test/club-api
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -8,7 +8,8 @@ COPY server/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/club-api ./cmd/api
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata && adduser -D -H -u 10001 app
+RUN apk add --no-cache ca-certificates tzdata && adduser -D -H -u 10001 app && mkdir /data && chown app /data
+WORKDIR /data
 USER app
 COPY --from=builder /out/club-api /club-api
 EXPOSE 8080

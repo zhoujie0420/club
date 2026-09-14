@@ -1,0 +1,9 @@
+.DS_Store
+front/node_modules/
+front/dist/
+server/club.db*
+server/club-api
+.artifacts/
+front/test-results/
+front/playwright-report/
+*.env

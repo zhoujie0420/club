@@ -19,6 +19,7 @@ import (
 type application struct {
 	db             *sql.DB
 	allowedOrigins map[string]struct{}
+	store          *clubStore
 }
 
 type response map[string]any
@@ -37,6 +38,11 @@ func main() {
 		db:             db,
 		allowedOrigins: parseOrigins(env("CORS_ALLOWED_ORIGINS", "http://localhost:5173,https://zhoujie0420.github.io")),
 	}
+	app.store, err = newClubStore(env("CLUB_DB_PATH", "club.db"), os.Getenv("CLUB_ACCESS_CODE"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer app.store.db.Close()
 
 	server := &http.Server{
 		Addr:              ":" + port,
@@ -70,6 +76,17 @@ func (app *application) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", app.health)
 	mux.HandleFunc("GET /readyz", app.ready)
 	mux.HandleFunc("GET /api/v1/meta", app.meta)
+	if app.store != nil {
+		app.registerClub(mux)
+		mux.Handle("GET /club/", http.StripPrefix("/club/", http.FileServer(http.Dir(env("CLUB_WEB_DIR", "web")))))
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/" {
+				http.NotFound(w, r)
+				return
+			}
+			http.Redirect(w, r, "/club/", http.StatusTemporaryRedirect)
+		})
+	}
 	return app.cors(app.logRequest(mux))
 }
 
@@ -78,6 +95,12 @@ func (app *application) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (app *application) ready(w http.ResponseWriter, r *http.Request) {
+	if app.store != nil {
+		if err := app.store.db.PingContext(r.Context()); err == nil {
+			writeJSON(w, 200, response{"status": "ready", "database": "sqlite"})
+			return
+		}
+	}
 	if app.db == nil {
 		writeJSON(w, http.StatusServiceUnavailable, response{"status": "not_ready", "database": "not_configured"})
 		return
