@@ -36,7 +36,7 @@ func main() {
 
 	app := &application{
 		db:             db,
-		allowedOrigins: parseOrigins(env("CORS_ALLOWED_ORIGINS", "http://localhost:5173,https://zhoujie0420.github.io")),
+		allowedOrigins: parseOrigins(env("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
 	}
 	app.store, err = newClubStore(env("CLUB_DB_PATH", "club.db"), os.Getenv("CLUB_ACCESS_CODE"))
 	if err != nil {
