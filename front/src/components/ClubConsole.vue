@@ -158,8 +158,8 @@
             ><view class="bar">BAR / 吧台</view></view
           >
           <text class="footnote"
-            >{{ state.tables.length }} 个台位 · 每 5 秒自动同步 · 更新于
-            {{ updatedTime }}</text
+            >{{ state.tables.length }} 个台位 · 有变更时同步 · 更新于
+            {{ updatedTime }}</text>
           >
         </template>
         <template v-if="tab === 'orders'">
@@ -235,7 +235,7 @@
             ><view class="info-row"
               ><text>数据存储</text><b>服务器 SQLite</b></view
             ><view class="info-row"
-              ><text>数据同步</text><b>5 秒自动刷新</b></view
+              ><text>数据同步</text><b>5 秒增量轮询</b></view>
             ><view class="info-row"
               ><text>收款模式</text><b>线下收款记录</b></view
             ><view class="info-row"
@@ -788,11 +788,28 @@ const visibleTables = computed(
       ) || [],
   ),
   filteredOrders = computed(() => orderResults.value);
-async function refresh() {
-  if (loading.value || !authenticated.value) return;
-  loading.value = true;
+let refreshInFlight = false;
+async function refresh(mode: "full" | "poll" = "full") {
+  if (!authenticated.value || refreshInFlight) return;
+  refreshInFlight = true;
+  if (mode === "full") loading.value = true;
   try {
-    const incoming = await request<State>("/state");
+    const path =
+      mode === "poll" && state.value?.rev
+        ? `/state?rev=${state.value.rev}`
+        : "/state";
+    let incoming = await request<State>(path);
+    if (
+      incoming.unchanged &&
+      incoming.businessDate &&
+      incoming.businessDate !== state.value?.businessDate
+    ) {
+      incoming = await request<State>("/state");
+    }
+    if (incoming.unchanged) {
+      error.value = "";
+      return;
+    }
     // An older in-flight poll must not overwrite a write response received later.
     const known = new Map((state.value?.orders || []).map((o) => [o.id, o]));
     if (selected.value) known.set(selected.value.id, selected.value);
@@ -820,6 +837,7 @@ async function refresh() {
     error.value = (e as Error).message;
     if (!session()) authenticated.value = false;
   } finally {
+    refreshInFlight = false;
     loading.value = false;
   }
 }
@@ -1387,7 +1405,7 @@ onMounted(() => {
       typeof document === "undefined" ||
       document.visibilityState === "visible"
     )
-      refresh();
+      refresh("poll");
   }, 5000);
 });
 onUnmounted(() => {

@@ -168,6 +168,42 @@ func TestAuthenticationAndValidation(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 }
+func TestStateRevisionPolling(t *testing.T) {
+	a, token := testClub(t)
+	first := call(t, a, token, "/api/v1/state", "", nil)
+	if first.Code != 200 {
+		t.Fatal(first.Body)
+	}
+	var payload struct {
+		Rev          int64   `json:"rev"`
+		Unchanged    bool    `json:"unchanged"`
+		Orders       []order `json:"orders"`
+		BusinessDate string  `json:"businessDate"`
+	}
+	if err := json.Unmarshal(first.Body.Bytes(), &payload); err != nil || payload.Rev < 1 || payload.Unchanged {
+		t.Fatalf("%v %#v", err, payload)
+	}
+	again := call(t, a, token, "/api/v1/state?rev="+fmt.Sprintf("%d", payload.Rev), "", nil)
+	var poll struct {
+		Rev       int64   `json:"rev"`
+		Unchanged bool    `json:"unchanged"`
+		Orders    []order `json:"orders"`
+	}
+	if err := json.Unmarshal(again.Body.Bytes(), &poll); err != nil {
+		t.Fatal(err)
+	}
+	if again.Code != 200 || !poll.Unchanged || poll.Rev != payload.Rev || len(poll.Orders) != 0 {
+		t.Fatalf("poll %#v %s", poll, again.Body)
+	}
+	readOrder(t, call(t, a, token, "/api/v1/orders", "rev-create", bookingData()))
+	changed := call(t, a, token, "/api/v1/state?rev="+fmt.Sprintf("%d", payload.Rev), "", nil)
+	if err := json.Unmarshal(changed.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Unchanged || payload.Rev <= poll.Rev || len(payload.Orders) == 0 {
+		t.Fatalf("expected new state %#v %s", payload, changed.Body)
+	}
+}
 func TestPersistenceAfterReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "persist.db")
 	s, err := newClubStore(path, "test-code")

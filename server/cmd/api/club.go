@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -24,6 +25,7 @@ import (
 type clubStore struct {
 	db       *sql.DB
 	code     string
+	rev      atomic.Int64
 	mu       sync.Mutex
 	attempts map[string][]time.Time
 }
@@ -152,13 +154,15 @@ func newClubStore(path, code string) (*clubStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
+	_, err = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-8000; PRAGMA mmap_size=67108864;
  CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, table_id TEXT NOT NULL, date TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL, start_minute INTEGER NOT NULL DEFAULT 0, end_minute INTEGER NOT NULL DEFAULT 1440, created_by TEXT NOT NULL DEFAULT '', customer_name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '');
  CREATE TABLE IF NOT EXISTS requests(key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, body TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, expires INTEGER NOT NULL, user_id TEXT NOT NULL DEFAULT 'owner');
  CREATE TABLE IF NOT EXISTS audit_logs(id TEXT PRIMARY KEY, order_id TEXT NOT NULL, user_id TEXT NOT NULL, action TEXT NOT NULL, created_at TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS staff_accounts(id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, pin_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);`)
+ CREATE TABLE IF NOT EXISTS staff_accounts(id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, pin_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);`)
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -180,7 +184,7 @@ func newClubStore(path, code string) (*clubStore, error) {
 			return nil, alterErr
 		}
 	}
-	if _, err = db.Exec("DROP INDEX IF EXISTS occupied_table; CREATE INDEX IF NOT EXISTS table_schedule ON orders(table_id,date,start_minute,end_minute,status); CREATE INDEX IF NOT EXISTS order_history ON orders(status,date,created_by); CREATE INDEX IF NOT EXISTS order_customer ON orders(customer_name,phone)"); err != nil {
+	if _, err = db.Exec("DROP INDEX IF EXISTS occupied_table; CREATE INDEX IF NOT EXISTS table_schedule ON orders(table_id,date,start_minute,end_minute,status); CREATE INDEX IF NOT EXISTS order_history ON orders(status,date,created_by); CREATE INDEX IF NOT EXISTS order_customer ON orders(customer_name,phone); CREATE INDEX IF NOT EXISTS orders_open ON orders(date,table_id) WHERE status NOT IN ('completed','cancelled'); CREATE INDEX IF NOT EXISTS sessions_expires ON sessions(expires)"); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -274,7 +278,32 @@ func newClubStore(path, code string) (*clubStore, error) {
 			return nil, err
 		}
 	}
-	return &clubStore{db: db, code: code, attempts: map[string][]time.Time{}}, nil
+	store := &clubStore{db: db, code: code, attempts: map[string][]time.Time{}}
+	var revText string
+	if db.QueryRow("SELECT value FROM meta WHERE key='rev'").Scan(&revText) == nil {
+		if n, parseErr := strconv.ParseInt(revText, 10, 64); parseErr == nil && n > 0 {
+			store.rev.Store(n)
+		}
+	}
+	if store.rev.Load() == 0 {
+		store.rev.Store(1)
+	}
+	return store, nil
+}
+
+func (s *clubStore) revision() int64 {
+	return s.rev.Load()
+}
+
+func (s *clubStore) bump(tx *sql.Tx) {
+	n := s.rev.Add(1)
+	value := strconv.FormatInt(n, 10)
+	const q = "INSERT INTO meta(key,value) VALUES ('rev',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+	if tx != nil {
+		_, _ = tx.Exec(q, value)
+		return
+	}
+	_, _ = s.db.Exec(q, value)
 }
 
 func (s *clubStore) staffByID(id string, requireActive bool) (staff, error) {
@@ -514,6 +543,7 @@ func (app *application) createProduct(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "创建商品失败")
 		return
 	}
+	app.store.bump(nil)
 	writeJSON(w, http.StatusCreated, response{"product": product})
 }
 
@@ -554,6 +584,7 @@ func (app *application) updateProduct(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "更新商品失败")
 		return
 	}
+	app.store.bump(nil)
 	product.Qty = 1
 	writeJSON(w, 200, response{"product": product})
 }
@@ -858,13 +889,21 @@ func businessDate() string {
 }
 func (app *application) state(w http.ResponseWriter, r *http.Request) {
 	u := currentStaff(r)
-	query := `SELECT body FROM orders WHERE (status NOT IN ('completed','cancelled') OR rowid IN (SELECT rowid FROM orders WHERE status IN ('completed','cancelled') ORDER BY rowid DESC LIMIT 100))`
-	args := []any{}
+	day := businessDate()
+	rev := app.store.revision()
+	if raw := strings.TrimSpace(r.URL.Query().Get("rev")); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 && parsed == rev {
+			writeJSON(w, 200, response{"unchanged": true, "rev": rev, "businessDate": day})
+			return
+		}
+	}
+	query := `SELECT body FROM orders WHERE (status NOT IN ('completed','cancelled') OR date=?)`
+	args := []any{day}
 	if u.Role == "sales" {
 		query += " AND created_by=?"
 		args = append(args, u.ID)
 	}
-	query += " ORDER BY rowid DESC LIMIT 1100"
+	query += " ORDER BY rowid DESC LIMIT 500"
 	rows, err := app.store.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
 		fail(w, 500, "读取订单失败")
@@ -896,7 +935,7 @@ func (app *application) state(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "读取商品失败")
 		return
 	}
-	writeJSON(w, 200, response{"orders": orders, "tables": tables, "products": products, "businessDate": businessDate(), "updatedAt": time.Now().Format(time.RFC3339), "mode": "role-test", "currentUser": currentStaff(r)})
+	writeJSON(w, 200, response{"orders": orders, "tables": tables, "products": products, "businessDate": day, "updatedAt": time.Now().Format(time.RFC3339), "mode": "role-test", "currentUser": u, "rev": rev, "unchanged": false})
 }
 
 func escapeLike(value string) string {
@@ -1117,6 +1156,7 @@ func (app *application) writeOrder(w http.ResponseWriter, r *http.Request, actio
 		fail(w, 500, "提交失败，请重试")
 		return
 	}
+	s.bump(nil)
 	writeJSON(w, 200, response{"order": o})
 }
 func (app *application) createBooking(w http.ResponseWriter, r *http.Request) {

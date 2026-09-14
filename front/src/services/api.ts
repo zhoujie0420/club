@@ -48,6 +48,8 @@ export interface State {
   businessDate: string;
   updatedAt: string;
   currentUser: Staff;
+  rev?: number;
+  unchanged?: boolean;
 }
 export interface AuditLog {
   id: string;
