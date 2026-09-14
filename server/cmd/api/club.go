@@ -287,6 +287,10 @@ func newClubStore(path, code string) (*clubStore, error) {
 	if store.rev.Load() == 0 {
 		store.rev.Store(1)
 	}
+	if _, err = db.Exec("DELETE FROM sessions WHERE expires < ?", time.Now().Unix()); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return store, nil
 }
 

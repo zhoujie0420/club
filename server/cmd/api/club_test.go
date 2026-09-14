@@ -230,6 +230,36 @@ func TestPersistenceAfterReopen(t *testing.T) {
 	}
 }
 
+func TestExpiredSessionsAreRemovedOnOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "expire.db")
+	s, err := newClubStore(path, "test-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.Exec("INSERT INTO sessions(token,expires,user_id) VALUES (?,?,?)", "old-token", time.Now().Add(-time.Hour).Unix(), "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.Exec("INSERT INTO sessions(token,expires,user_id) VALUES (?,?,?)", "live-token", time.Now().Add(time.Hour).Unix(), "owner"); err != nil {
+		t.Fatal(err)
+	}
+	s.db.Close()
+	s, err = newClubStore(path, "test-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.db.Close()
+	var n int
+	if err = s.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE token IN ('old-token','live-token')").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("expired session kept: %d", n)
+	}
+	if call(t, &application{store: s}, "old-token", "/api/v1/state", "", nil).Code != http.StatusUnauthorized {
+		t.Fatal("expired token still authorized")
+	}
+}
+
 func TestRolePermissionsAndAudit(t *testing.T) {
 	a, _ := testClub(t)
 	sales := staffToken(t, a, "sales")
