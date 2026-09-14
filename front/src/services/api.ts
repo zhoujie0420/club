@@ -82,6 +82,7 @@ export interface DailyReport {
   scope: "own" | "store";
 }
 const tokenKey = "club-test-session";
+const sessionClearedEvent = "club-session-cleared";
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -90,12 +91,31 @@ export class ApiError extends Error {
     super(message);
   }
 }
+export function apiBase(): string {
+  const raw = String(import.meta.env.VITE_API_BASE ?? "")
+    .trim()
+    .replace(/\/$/, "");
+  if (typeof document === "undefined" && !/^https:\/\//i.test(raw)) {
+    throw new Error(
+      "VITE_API_BASE 必须是 https:// 绝对地址（小程序/App 不能用相对路径）",
+    );
+  }
+  return raw;
+}
+const API_BASE = apiBase();
 export const session = () => uni.getStorageSync(tokenKey) as string;
+function clearSession() {
+  if (!session()) return;
+  uni.removeStorageSync(tokenKey);
+  uni.$emit(sessionClearedEvent);
+}
 export async function logout() {
   try {
     if (session()) await request<{ ok: boolean }>("/logout", "POST", {});
+  } catch {
+    // 401 or network errors must not recurse into request()/logout().
   } finally {
-    uni.removeStorageSync(tokenKey);
+    clearSession();
   }
 }
 export async function request<T>(
@@ -106,7 +126,7 @@ export async function request<T>(
 ): Promise<T> {
   return new Promise((resolve, reject) =>
     uni.request({
-      url: `/api/v1${path}`,
+      url: `${API_BASE}/api/v1${path}`,
       method,
       data: data as any,
       timeout: 12000,
@@ -118,7 +138,7 @@ export async function request<T>(
       success: (r) => {
         if (r.statusCode >= 200 && r.statusCode < 300) resolve(r.data as T);
         else {
-          if (r.statusCode === 401) logout();
+          if (r.statusCode === 401 && path !== "/login") clearSession();
           reject(
             new ApiError(
               (r.data as any)?.error || "服务暂时不可用",

@@ -859,18 +859,21 @@ async function signIn() {
     busy.value = false;
   }
 }
+function dropSession() {
+  authenticated.value = false;
+  state.value = null;
+  selected.value = null;
+  auditLogs.value = [];
+  staffAccounts.value = [];
+  managedProducts.value = [];
+  orderResults.value = [];
+  orderCursor.value = "";
+  report.value = null;
+}
 function signOut() {
   busy.value = true;
   logout().finally(() => {
-    authenticated.value = false;
-    state.value = null;
-    selected.value = null;
-    auditLogs.value = [];
-    staffAccounts.value = [];
-    managedProducts.value = [];
-    orderResults.value = [];
-    orderCursor.value = "";
-    report.value = null;
+    dropSession();
     loadLoginOptions();
     busy.value = false;
   });
@@ -1398,6 +1401,7 @@ function confirmAction(
 }
 let timer: ReturnType<typeof setInterval>;
 onMounted(() => {
+  uni.$on("club-session-cleared", dropSession);
   loadLoginOptions();
   refresh();
   timer = setInterval(() => {
@@ -1409,6 +1413,7 @@ onMounted(() => {
   }, 5000);
 });
 onUnmounted(() => {
+  uni.$off("club-session-cleared", dropSession);
   clearInterval(timer);
   clearTimeout(orderSearchTimer);
 });

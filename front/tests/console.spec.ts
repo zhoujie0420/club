@@ -157,3 +157,59 @@ test("owner can see database-backed employee management", async ({ page }) => {
   await expect(page.locator(".product-row b").filter({ hasText: "经典畅饮套餐" })).toBeVisible();
   await expect(button(page, "创建并上架")).toBeVisible();
 });
+
+test("expired session clears locally without posting logout", async ({
+  page,
+}) => {
+  await page.goto("/club/");
+  await page
+    .locator(".login-card input")
+    .fill(process.env.CLUB_TEST_CODE || "local-test-only");
+  await button(page, "进入工作台 →").click();
+  await expect(page.getByText("让每一桌，都井然有序。")).toBeVisible();
+  let logoutCalls = 0;
+  await page.route("**/api/v1/logout", async (route) => {
+    logoutCalls += 1;
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "请先输入测试访问口令" }),
+    });
+  });
+  await page.route("**/api/v1/state**", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "请先输入测试访问口令" }),
+    });
+  });
+  await page.locator(".tabbar uni-button").filter({ hasText: "台位" }).click();
+  await expect(page.getByText("进入测试工作台")).toBeVisible();
+  expect(logoutCalls).toBe(0);
+});
+
+test("wrong login password does not clear an existing session token", async ({
+  page,
+}) => {
+  await page.goto("/club/");
+  await expect(page.getByText("进入测试工作台")).toBeVisible();
+  await page.evaluate(() => {
+    const api = (window as unknown as { uni?: { setStorageSync?: Function } }).uni;
+    if (api && typeof api.setStorageSync === "function") {
+      api.setStorageSync("club-test-session", "keep-me");
+    } else {
+      localStorage.setItem("club-test-session", "keep-me");
+    }
+  });
+  await page.locator(".login-card input").fill("wrong-password");
+  await button(page, "进入工作台 →").click();
+  await expect(page.getByText("员工账号或登录口令不正确")).toBeVisible();
+  const kept = await page.evaluate(() => {
+    const api = (window as unknown as { uni?: { getStorageSync?: Function } }).uni;
+    if (api && typeof api.getStorageSync === "function") {
+      return api.getStorageSync("club-test-session");
+    }
+    return localStorage.getItem("club-test-session");
+  });
+  expect(kept).toBe("keep-me");
+});
