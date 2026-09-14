@@ -4,7 +4,7 @@
 
 ## 可以验证的功能
 
-- 数据库员工账号和独立口令登录，12 小时测试会话；首次迁移的四个预置账号继续使用原测试口令。
+- 数据库员工账号和独立口令登录，12 小时测试会话；四个预置账号使用固定测试口令 `holeclub`。
 - 店长可创建、启停员工账号并重置登录口令；停用或重置后，该员工现有会话立即失效。
 - 店长可查看最长 90 天全店营业报表，销售只能查看本人订单汇总；报表包含营收、完成单、取消单、客单价和每日明细。
 - 店长可新增、改名、改价、上下架商品与套餐；预订和加单从服务端读取当前价格，已成交订单保留当时价格。
@@ -29,7 +29,7 @@
 
 my-cloud 的 deploy 账号可运行用户服务，但无 Docker、系统 Nginx 和现有 MySQL 管理权限。本次使用独立 Go 进程和 SQLite 文件部署联调环境，避免修改现有系统服务。
 
-当前不是完整 P0 正式营业版本：首次迁移的四个预置身份暂时使用同一个旧测试口令，店长可逐一重置为独立口令；MySQL 数据模型、sqlc、Pinia 模块拆分、服务端分页、退款、并台、短信、会员和线上支付尚未实现。
+当前不是完整 P0 正式营业版本：四个预置身份共用固定测试口令 `holeclub`，店长可逐一重置为独立口令；MySQL 数据模型、sqlc、Pinia 模块拆分、服务端分页、退款、并台、短信、会员和线上支付尚未实现。
 
 四种测试身份使用固定 RBAC 权限。手机号接口可供测试搜索使用，尚未完成生产级字段加密与查看审计，请只录入虚构数据。当前商品价格以整数元计价；正式版应迁移为整数分。
 
@@ -40,14 +40,14 @@ my-cloud 的 deploy 账号可运行用户服务，但无 Docker、系统 Nginx �
 - 云端测试地址：`http://115.191.3.226:18080/club/`。TCP 18080 已放行并通过公网浏览器验收。
 - 当前电脑 SSH 转发入口：`http://127.0.0.1:18081/club/`，连接的是同一个云端服务。
 - 重建转发：`ssh -N -L 18081:127.0.0.1:18080 my-cloud`，保持此命令运行。该入口仅对当前电脑有效。
-- 使用随机生成的测试访问口令登录；口令保存在远程 `service.env`，不写入项目文档。
+- 四个预置身份（店长、销售小林、前台小周、服务员阿杰）使用固定测试口令 `holeclub` 登录。口令也写在远程 `service.env` 的 `CLUB_ACCESS_CODE`。这是测试环境口令，不要用于生产。
 
 - SSH 主机：`my-cloud`，用户 `deploy`。
 - 目录：`/home/deploy/club-test`。
 - Go 可执行文件：`club-api`。
 - 前端构建：`web/`，由 Go 服务托管 `/club/`。
 - 数据文件：`club.db`，与发布产物分离，不随部署覆盖。
-- 环境变量：`service.env`，仅部署用户可读，口令不提交仓库。
+- 环境变量：`service.env`，仅部署用户可读。测试口令固定为 `holeclub`。
 - 服务：`systemctl --user status club-test.service`。
 - 日志：`journalctl --user -u club-test.service -n 100`。
 - 重启：`systemctl --user restart club-test.service`。
@@ -65,7 +65,7 @@ GOTOOLCHAIN=go1.23.12 go test -race ./...
 GOTOOLCHAIN=go1.23.12 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o ../.artifacts/club-api ./cmd/api
 ```
 
-将构建产物上传到 `/home/deploy/club-test`，前端上传至 `web/`；首次部署同时上传 `deploy/club-test.service` 与 `deploy/install-test.sh`，在远程执行安装脚本。安装脚本仅在环境文件不存在时生成随机口令，不覆盖已有口令和数据。
+将构建产物上传到 `/home/deploy/club-test`，前端上传至 `web/`；首次部署同时上传 `deploy/club-test.service` 与 `deploy/install-test.sh`，在远程执行安装脚本。安装脚本仅在环境文件不存在时写入固定测试口令 `holeclub`，不覆盖已有口令和数据。
 
 后续更新可先上传二进制为 `club-api.next`，然后替换 `club-api` 并重启用户服务，避免直接覆盖正在运行的可执行文件。
 

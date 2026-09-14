@@ -3,7 +3,7 @@ set -euo pipefail
 cd /home/deploy/club-test
 umask 077
 if [ ! -f service.env ]; then
-  printf 'PORT=18080\nCLUB_DB_PATH=/home/deploy/club-test/club.db\nCLUB_WEB_DIR=/home/deploy/club-test/web\nCLUB_ACCESS_CODE=%s\nAPP_VERSION=0.1-test\n' "$(openssl rand -hex 12)" > service.env
+  printf 'PORT=18080\nCLUB_DB_PATH=/home/deploy/club-test/club.db\nCLUB_WEB_DIR=/home/deploy/club-test/web\nCLUB_ACCESS_CODE=holeclub\nAPP_VERSION=0.1-test\n' > service.env
 fi
 chmod 600 service.env
 chmod 755 club-api
