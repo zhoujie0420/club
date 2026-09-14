@@ -4,6 +4,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=15min
 WorkingDirectory=%h/club-test
 ExecStart=%h/club-watch/watch-release.sh
 Nice=10

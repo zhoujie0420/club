@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Poll the rolling GitHub release via the API (github.com download URLs
-# time out from this China host) and apply it when REVISION changes.
+# Poll the rolling GitHub release via the API and apply it when REVISION
+# changes. github.com download URLs and the API octet-stream path are both
+# slow from this China host (~15KB/s), so tarball fetches resume in chunks.
 set -euo pipefail
 
 CLUB_ROOT="${CLUB_ROOT:-/home/deploy/club-test}"
@@ -41,23 +42,34 @@ print(url)
 ' "$1" "$TMP/release.json"
 }
 
+# Resume a slow GitHub asset download. Each attempt is time-capped so a
+# stalled connection cannot block the timer forever.
+download() {
+  local name="$1" dest="$2" url
+  url="$(asset_url "$name")"
+  rm -f "$dest"
+  local i
+  for i in $(seq 1 15); do
+    if curl -fsSL -C - --connect-timeout 20 --max-time 90 \
+      -A "$UA" -H 'Accept: application/octet-stream' \
+      -o "$dest" "$url"; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/club-watch.XXXXXX")"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
-if ! curl -fsSL --max-time 30 -A "$UA" -H 'Accept: application/vnd.github+json' \
+if ! curl -fsSL --connect-timeout 20 --max-time 30 -A "$UA" \
+  -H 'Accept: application/vnd.github+json' \
   -o "$TMP/release.json" "$API"; then
   log "no release yet or API fetch failed ($API)"
   exit 0
 fi
-
-download() {
-  local name="$1" dest="$2" url
-  url="$(asset_url "$name" < "$TMP/release.json")"
-  curl -fsSL --max-time 180 -A "$UA" -L \
-    -H 'Accept: application/octet-stream' \
-    -o "$dest" "$url"
-}
 
 if ! download REVISION "$TMP/REVISION"; then
   log "REVISION asset missing"
@@ -74,8 +86,14 @@ if [[ -z "$new" || "$new" == "$old" ]]; then
 fi
 
 log "downloading $new (was ${old:-none})"
-download club-test.tar.gz "$TMP/club-test.tar.gz"
-download club-test.tar.gz.sha256 "$TMP/club-test.tar.gz.sha256"
+if ! download club-test.tar.gz "$TMP/club-test.tar.gz"; then
+  log "tarball download failed"
+  exit 1
+fi
+if ! download club-test.tar.gz.sha256 "$TMP/club-test.tar.gz.sha256"; then
+  log "sha256 asset missing"
+  exit 1
+fi
 
 got="$(digest "$TMP/club-test.tar.gz")"
 want="$(awk '{print $1}' "$TMP/club-test.tar.gz.sha256" | tr -d '[:space:]')"
