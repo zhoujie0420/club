@@ -188,6 +188,12 @@ test("expired session clears locally without posting logout", async ({
   expect(logoutCalls).toBe(0);
 });
 
+test("privacy statement is reachable from login", async ({ page }) => {
+  await page.goto("/club/");
+  await page.getByText("隐私说明", { exact: true }).click();
+  await expect(page.getByText("HOLE CLUB 员工端隐私说明")).toBeVisible();
+});
+
 test("wrong login password does not clear an existing session token", async ({
   page,
 }) => {

@@ -28,7 +28,7 @@
       >
       <text class="muted"
         >数据保存在服务器，多设备共享。收款仅为线下记录。</text
-      >
+      ><button class="text-button" @click="openPrivacy">隐私说明</button>
     </view>
     <template v-else>
       <view class="header"
@@ -874,6 +874,9 @@ function dropSession() {
   orderResults.value = [];
   orderCursor.value = "";
   report.value = null;
+}
+function openPrivacy() {
+  uni.navigateTo({ url: "/pages/privacy/index" });
 }
 function signOut() {
   busy.value = true;

@@ -1,7 +1,7 @@
 {
-    "name" : "",
+    "name" : "HOLE CLUB",
     "appid" : "",
-    "description" : "",
+    "description" : "门店员工订台与现场运营工作台。不使用微信登录，不读取微信手机号。",
     "versionName" : "1.0.0",
     "versionCode" : "100",
     "transformPx" : false,

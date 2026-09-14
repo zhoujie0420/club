@@ -6,6 +6,14 @@
         "navigationStyle": "custom",
         "navigationBarTitleText": "HOLE CLUB · 员工工作台"
       }
+    },
+    {
+      "path": "pages/privacy/index",
+      "style": {
+        "navigationBarTitleText": "隐私说明",
+        "navigationBarBackgroundColor": "#101114",
+        "navigationBarTextStyle": "white"
+      }
     }
   ],
   "globalStyle": {
