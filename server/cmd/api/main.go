@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -72,78 +72,81 @@ func main() {
 }
 
 func (app *application) routes() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", app.health)
-	mux.HandleFunc("GET /readyz", app.ready)
-	mux.HandleFunc("GET /api/v1/meta", app.meta)
+	gin.SetMode(gin.ReleaseMode)
+	engine := gin.New()
+	engine.Use(gin.Recovery(), app.logRequest(), app.cors())
+	engine.GET("/healthz", app.health)
+	engine.GET("/readyz", app.ready)
+	engine.GET("/api/v1/meta", app.meta)
 	if app.store != nil {
-		app.registerClub(mux)
-		mux.Handle("GET /club/", http.StripPrefix("/club/", http.FileServer(http.Dir(env("CLUB_WEB_DIR", "web")))))
-		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/" {
-				http.NotFound(w, r)
-				return
-			}
-			http.Redirect(w, r, "/club/", http.StatusTemporaryRedirect)
+		app.registerClub(engine)
+		webDir := env("CLUB_WEB_DIR", "web")
+		engine.GET("/club", func(c *gin.Context) {
+			c.Redirect(http.StatusMovedPermanently, "/club/")
+		})
+		engine.GET("/club/*filepath", gin.WrapH(http.StripPrefix("/club/", http.FileServer(http.Dir(webDir)))))
+		engine.GET("/", func(c *gin.Context) {
+			c.Redirect(http.StatusTemporaryRedirect, "/club/")
 		})
 	}
-	return app.cors(app.logRequest(mux))
+	return engine
 }
 
-func (app *application) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, response{"status": "ok", "service": "club-api"})
+func (app *application) health(c *gin.Context) {
+	writeJSON(c, http.StatusOK, response{"status": "ok", "service": "club-api"})
 }
 
-func (app *application) ready(w http.ResponseWriter, r *http.Request) {
+func (app *application) ready(c *gin.Context) {
 	if app.store != nil {
-		if err := app.store.db.PingContext(r.Context()); err == nil {
-			writeJSON(w, 200, response{"status": "ready", "database": "sqlite"})
+		if err := app.store.db.PingContext(c.Request.Context()); err == nil {
+			writeJSON(c, http.StatusOK, response{"status": "ready", "database": "sqlite"})
 			return
 		}
 	}
 	if app.db == nil {
-		writeJSON(w, http.StatusServiceUnavailable, response{"status": "not_ready", "database": "not_configured"})
+		writeJSON(c, http.StatusServiceUnavailable, response{"status": "not_ready", "database": "not_configured"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 	defer cancel()
 	if err := app.db.PingContext(ctx); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, response{"status": "not_ready", "database": "unavailable"})
+		writeJSON(c, http.StatusServiceUnavailable, response{"status": "not_ready", "database": "unavailable"})
 		return
 	}
-	writeJSON(w, http.StatusOK, response{"status": "ready", "database": "ok"})
+	writeJSON(c, http.StatusOK, response{"status": "ready", "database": "ok"})
 }
 
-func (app *application) meta(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, response{
+func (app *application) meta(c *gin.Context) {
+	writeJSON(c, http.StatusOK, response{
 		"name":    "HOLE CLUB API",
 		"version": env("APP_VERSION", "dev"),
 	})
 }
 
-func (app *application) cors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
+func (app *application) cors() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
 		if _, ok := app.allowedOrigins[origin]; origin != "" && ok {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		}
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
+		if c.Request.Method == http.MethodOptions {
+			c.Status(http.StatusNoContent)
+			c.Abort()
 			return
 		}
-		next.ServeHTTP(w, r)
-	})
+		c.Next()
+	}
 }
 
-func (app *application) logRequest(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (app *application) logRequest() gin.HandlerFunc {
+	return func(c *gin.Context) {
 		started := time.Now()
-		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(started).Round(time.Millisecond))
-	})
+		c.Next()
+		log.Printf("%s %s %s", c.Request.Method, c.Request.URL.Path, time.Since(started).Round(time.Millisecond))
+	}
 }
 
 func openDatabase(dsn string) (*sql.DB, error) {
@@ -177,10 +180,6 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func writeJSON(w http.ResponseWriter, status int, body response) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(body); err != nil {
-		log.Printf("encode response: %v", err)
-	}
+func writeJSON(c *gin.Context, status int, body response) {
+	c.JSON(status, body)
 }

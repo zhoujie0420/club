@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -54,8 +55,6 @@ type staff struct {
 	RoleName    string   `json:"roleName"`
 	Permissions []string `json:"permissions"`
 }
-type staffContextKey struct{}
-
 type auditLog struct {
 	ID        string `json:"id"`
 	OrderID   string `json:"orderId"`
@@ -340,72 +339,78 @@ func orderSchedule(arrival string, duration int) (int, int, error) {
 	start := parsed.Hour()*60 + parsed.Minute()
 	return start, start + duration, nil
 }
-func fail(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, response{"error": message})
+func fail(c *gin.Context, status int, message string) {
+	writeJSON(c, status, response{"error": message})
 }
-func decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 32768)
-	d := json.NewDecoder(r.Body)
+func decode(c *gin.Context, v any) bool {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32768)
+	d := json.NewDecoder(c.Request.Body)
 	if d.Decode(v) != nil {
-		fail(w, 400, "请求格式不正确")
+		fail(c, 400, "请求格式不正确")
 		return false
 	}
 	if d.Decode(new(any)) != io.EOF {
-		fail(w, 400, "请求包含多余内容")
+		fail(c, 400, "请求包含多余内容")
 		return false
 	}
 	return true
 }
-func (app *application) secure(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+func (app *application) secure() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 		var expires int64
 		var userID string
 		if app.store.db.QueryRow("SELECT expires,user_id FROM sessions WHERE token=?", token).Scan(&expires, &userID) != nil || expires < time.Now().Unix() {
-			fail(w, 401, "请先输入测试访问口令")
+			fail(c, 401, "请先输入测试访问口令")
+			c.Abort()
 			return
 		}
 		profile, err := app.store.staffByID(userID, true)
 		if err != nil {
-			fail(w, 401, "员工身份已失效，请重新登录")
+			fail(c, 401, "员工身份已失效，请重新登录")
+			c.Abort()
 			return
 		}
-		next(w, r.WithContext(context.WithValue(r.Context(), staffContextKey{}, profile)))
+		c.Set("staff", profile)
+		c.Next()
 	}
 }
-func (app *application) registerClub(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/login", app.login)
-	mux.HandleFunc("GET /api/v1/login-options", app.loginOptions)
-	mux.HandleFunc("POST /api/v1/logout", app.secure(app.logout))
-	mux.HandleFunc("GET /api/v1/state", app.secure(app.state))
-	mux.HandleFunc("GET /api/v1/audit-logs", app.secure(app.auditLogs))
-	mux.HandleFunc("GET /api/v1/staff", app.secure(app.listStaff))
-	mux.HandleFunc("POST /api/v1/staff", app.secure(app.createStaff))
-	mux.HandleFunc("PUT /api/v1/staff/{id}", app.secure(app.updateStaff))
-	mux.HandleFunc("GET /api/v1/reports/daily", app.secure(app.dailyReport))
-	mux.HandleFunc("GET /api/v1/products", app.secure(app.listProducts))
-	mux.HandleFunc("POST /api/v1/products", app.secure(app.createProduct))
-	mux.HandleFunc("PUT /api/v1/products/{id}", app.secure(app.updateProduct))
-	mux.HandleFunc("POST /api/v1/orders", app.secure(app.createBooking))
-	mux.HandleFunc("GET /api/v1/orders", app.secure(app.listOrders))
-	mux.HandleFunc("POST /api/v1/orders/{id}/{action}", app.secure(app.mutateOrder))
+func (app *application) registerClub(engine *gin.Engine) {
+	api := engine.Group("/api/v1")
+	api.POST("/login", app.login)
+	api.GET("/login-options", app.loginOptions)
+	auth := api.Group("")
+	auth.Use(app.secure())
+	auth.POST("/logout", app.logout)
+	auth.GET("/state", app.state)
+	auth.GET("/audit-logs", app.auditLogs)
+	auth.GET("/staff", app.listStaff)
+	auth.POST("/staff", app.createStaff)
+	auth.PUT("/staff/:id", app.updateStaff)
+	auth.GET("/reports/daily", app.dailyReport)
+	auth.GET("/products", app.listProducts)
+	auth.POST("/products", app.createProduct)
+	auth.PUT("/products/:id", app.updateProduct)
+	auth.POST("/orders", app.createBooking)
+	auth.GET("/orders", app.listOrders)
+	auth.POST("/orders/:id/:action", app.mutateOrder)
 }
 
-func (app *application) dailyReport(w http.ResponseWriter, r *http.Request) {
-	u := currentStaff(r)
+func (app *application) dailyReport(c *gin.Context) {
+	u := currentStaff(c)
 	if !permitted(u, "report:view") && !permitted(u, "report:own") {
-		fail(w, http.StatusForbidden, "当前角色没有查看营业报表的权限")
+		fail(c, http.StatusForbidden, "当前角色没有查看营业报表的权限")
 		return
 	}
-	to := r.URL.Query().Get("to")
-	from := r.URL.Query().Get("from")
+	to := c.Query("to")
+	from := c.Query("from")
 	if to == "" {
 		to = businessDate()
 	}
 	toDate, err := time.Parse("2006-01-02", to)
 	if err != nil {
-		fail(w, 400, "报表结束日期不正确")
+		fail(c, 400, "报表结束日期不正确")
 		return
 	}
 	if from == "" {
@@ -413,12 +418,12 @@ func (app *application) dailyReport(w http.ResponseWriter, r *http.Request) {
 	}
 	fromDate, err := time.Parse("2006-01-02", from)
 	if err != nil || fromDate.After(toDate) || toDate.Sub(fromDate) > 89*24*time.Hour {
-		fail(w, 400, "报表日期范围需为 1–90 天")
+		fail(c, 400, "报表日期范围需为 1–90 天")
 		return
 	}
-	rows, err := app.store.db.QueryContext(r.Context(), "SELECT body FROM orders WHERE date BETWEEN ? AND ? ORDER BY date", from, to)
+	rows, err := app.store.db.QueryContext(c.Request.Context(), "SELECT body FROM orders WHERE date BETWEEN ? AND ? ORDER BY date", from, to)
 	if err != nil {
-		fail(w, 500, "读取报表失败")
+		fail(c, 500, "读取报表失败")
 		return
 	}
 	defer rows.Close()
@@ -431,7 +436,7 @@ func (app *application) dailyReport(w http.ResponseWriter, r *http.Request) {
 		var raw string
 		var o order
 		if rows.Scan(&raw) != nil || json.Unmarshal([]byte(raw), &o) != nil {
-			fail(w, 500, "报表订单数据异常")
+			fail(c, 500, "报表订单数据异常")
 			return
 		}
 		if o.DurationMinutes == 0 {
@@ -471,7 +476,7 @@ func (app *application) dailyReport(w http.ResponseWriter, r *http.Request) {
 		totals.Refunded += value.Refunded
 		totals.RefundAmount += value.RefundAmount
 	}
-	writeJSON(w, 200, response{"from": from, "to": to, "days": days, "totals": totals, "scope": map[bool]string{true: "own", false: "store"}[u.Role == "sales"]})
+	writeJSON(c, 200, response{"from": from, "to": to, "days": days, "totals": totals, "scope": map[bool]string{true: "own", false: "store"}[u.Role == "sales"]})
 }
 
 func (app *application) readProducts(ctx context.Context, activeOnly bool) ([]item, error) {
@@ -508,47 +513,47 @@ func validateProduct(name string, price int) error {
 	return nil
 }
 
-func (app *application) listProducts(w http.ResponseWriter, r *http.Request) {
-	if !requireOwner(w, r) {
+func (app *application) listProducts(c *gin.Context) {
+	if !requireOwner(c) {
 		return
 	}
-	products, err := app.readProducts(r.Context(), false)
+	products, err := app.readProducts(c.Request.Context(), false)
 	if err != nil {
-		fail(w, 500, "读取商品失败")
+		fail(c, 500, "读取商品失败")
 		return
 	}
-	writeJSON(w, 200, response{"products": products})
+	writeJSON(c, 200, response{"products": products})
 }
 
-func (app *application) createProduct(w http.ResponseWriter, r *http.Request) {
-	if !requireOwner(w, r) {
+func (app *application) createProduct(c *gin.Context) {
+	if !requireOwner(c) {
 		return
 	}
 	var req struct {
 		Name  string `json:"name"`
 		Price int    `json:"price"`
 	}
-	if !decode(w, r, &req) {
+	if !decode(c, &req) {
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if err := validateProduct(req.Name, req.Price); err != nil {
-		fail(w, 400, err.Error())
+		fail(c, 400, err.Error())
 		return
 	}
 	var sortOrder int
-	app.store.db.QueryRowContext(r.Context(), "SELECT COALESCE(MAX(sort_order),-1)+1 FROM products").Scan(&sortOrder)
+	app.store.db.QueryRowContext(c.Request.Context(), "SELECT COALESCE(MAX(sort_order),-1)+1 FROM products").Scan(&sortOrder)
 	product := item{ProductID: "product-" + randomID()[:12], Name: req.Name, Qty: 1, Price: req.Price, Active: true}
-	if _, err := app.store.db.ExecContext(r.Context(), "INSERT INTO products(id,name,price,active,sort_order,created_at) VALUES (?,?,?,1,?,?)", product.ProductID, product.Name, product.Price, sortOrder, time.Now().Format(time.RFC3339)); err != nil {
-		fail(w, 500, "创建商品失败")
+	if _, err := app.store.db.ExecContext(c.Request.Context(), "INSERT INTO products(id,name,price,active,sort_order,created_at) VALUES (?,?,?,1,?,?)", product.ProductID, product.Name, product.Price, sortOrder, time.Now().Format(time.RFC3339)); err != nil {
+		fail(c, 500, "创建商品失败")
 		return
 	}
 	app.store.bump(nil)
-	writeJSON(w, http.StatusCreated, response{"product": product})
+	writeJSON(c, http.StatusCreated, response{"product": product})
 }
 
-func (app *application) updateProduct(w http.ResponseWriter, r *http.Request) {
-	if !requireOwner(w, r) {
+func (app *application) updateProduct(c *gin.Context) {
+	if !requireOwner(c) {
 		return
 	}
 	var req struct {
@@ -556,13 +561,13 @@ func (app *application) updateProduct(w http.ResponseWriter, r *http.Request) {
 		Price  *int    `json:"price"`
 		Active *bool   `json:"active"`
 	}
-	if !decode(w, r, &req) {
+	if !decode(c, &req) {
 		return
 	}
 	var product item
 	var active int
-	if err := app.store.db.QueryRowContext(r.Context(), "SELECT id,name,price,active FROM products WHERE id=?", r.PathValue("id")).Scan(&product.ProductID, &product.Name, &product.Price, &active); err != nil {
-		fail(w, 404, "商品不存在")
+	if err := app.store.db.QueryRowContext(c.Request.Context(), "SELECT id,name,price,active FROM products WHERE id=?", c.Param("id")).Scan(&product.ProductID, &product.Name, &product.Price, &active); err != nil {
+		fail(c, 404, "商品不存在")
 		return
 	}
 	if req.Name != nil {
@@ -577,21 +582,21 @@ func (app *application) updateProduct(w http.ResponseWriter, r *http.Request) {
 		product.Active = active == 1
 	}
 	if err := validateProduct(product.Name, product.Price); err != nil {
-		fail(w, 400, err.Error())
+		fail(c, 400, err.Error())
 		return
 	}
-	if _, err := app.store.db.ExecContext(r.Context(), "UPDATE products SET name=?,price=?,active=? WHERE id=?", product.Name, product.Price, map[bool]int{true: 1, false: 0}[product.Active], product.ProductID); err != nil {
-		fail(w, 500, "更新商品失败")
+	if _, err := app.store.db.ExecContext(c.Request.Context(), "UPDATE products SET name=?,price=?,active=? WHERE id=?", product.Name, product.Price, map[bool]int{true: 1, false: 0}[product.Active], product.ProductID); err != nil {
+		fail(c, 500, "更新商品失败")
 		return
 	}
 	app.store.bump(nil)
 	product.Qty = 1
-	writeJSON(w, 200, response{"product": product})
+	writeJSON(c, 200, response{"product": product})
 }
-func (app *application) loginOptions(w http.ResponseWriter, r *http.Request) {
-	rows, err := app.store.db.QueryContext(r.Context(), "SELECT id,name,role FROM staff_accounts WHERE active=1 ORDER BY rowid")
+func (app *application) loginOptions(c *gin.Context) {
+	rows, err := app.store.db.QueryContext(c.Request.Context(), "SELECT id,name,role FROM staff_accounts WHERE active=1 ORDER BY rowid")
 	if err != nil {
-		fail(w, 500, "读取员工账号失败")
+		fail(c, 500, "读取员工账号失败")
 		return
 	}
 	defer rows.Close()
@@ -599,7 +604,7 @@ func (app *application) loginOptions(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var option staff
 		if err := rows.Scan(&option.ID, &option.Name, &option.Role); err != nil {
-			fail(w, 500, "员工账号数据异常")
+			fail(c, 500, "员工账号数据异常")
 			return
 		}
 		if definition, ok := rolePermissions[option.Role]; ok {
@@ -608,17 +613,17 @@ func (app *application) loginOptions(w http.ResponseWriter, r *http.Request) {
 			options = append(options, option)
 		}
 	}
-	writeJSON(w, 200, response{"staff": options})
+	writeJSON(c, 200, response{"staff": options})
 }
-func (app *application) logout(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if _, err := app.store.db.ExecContext(r.Context(), "DELETE FROM sessions WHERE token=?", token); err != nil {
-		fail(w, 500, "退出登录失败")
+func (app *application) logout(c *gin.Context) {
+	token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+	if _, err := app.store.db.ExecContext(c.Request.Context(), "DELETE FROM sessions WHERE token=?", token); err != nil {
+		fail(c, 500, "退出登录失败")
 		return
 	}
-	writeJSON(w, 200, response{"ok": true})
+	writeJSON(c, 200, response{"ok": true})
 }
-func (app *application) login(w http.ResponseWriter, r *http.Request) {
+func (app *application) login(c *gin.Context) {
 	s := app.store
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -631,7 +636,7 @@ func (app *application) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.attempts["login"] = recent
 	if len(recent) >= 30 {
-		fail(w, 429, "尝试过于频繁，请一分钟后重试")
+		fail(c, 429, "尝试过于频繁，请一分钟后重试")
 		return
 	}
 	s.attempts["login"] = append(recent, now)
@@ -639,28 +644,28 @@ func (app *application) login(w http.ResponseWriter, r *http.Request) {
 		Code   string `json:"code"`
 		UserID string `json:"userId"`
 	}
-	if !decode(w, r, &req) {
+	if !decode(c, &req) {
 		return
 	}
 	var hash string
 	var active int
 	if err := s.db.QueryRow("SELECT pin_hash,active FROM staff_accounts WHERE id=?", req.UserID).Scan(&hash, &active); err != nil || active != 1 || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Code)) != nil {
-		fail(w, 401, "员工账号或登录口令不正确")
+		fail(c, 401, "员工账号或登录口令不正确")
 		return
 	}
 	profile, err := s.staffByID(req.UserID, true)
 	if err != nil {
-		fail(w, 401, "员工账号已停用")
+		fail(c, 401, "员工账号已停用")
 		return
 	}
 	token := randomID()
 	if _, err := s.db.Exec("INSERT INTO sessions(token,expires,user_id) VALUES (?,?,?)", token, time.Now().Add(12*time.Hour).Unix(), profile.ID); err != nil {
-		fail(w, 500, "登录失败")
+		fail(c, 500, "登录失败")
 		return
 	}
-	writeJSON(w, 200, response{"token": token, "user": profile})
+	writeJSON(c, 200, response{"token": token, "user": profile})
 }
-func currentStaff(r *http.Request) staff { return r.Context().Value(staffContextKey{}).(staff) }
+func currentStaff(c *gin.Context) staff { return c.MustGet("staff").(staff) }
 func permitted(u staff, permission string) bool {
 	for _, p := range u.Permissions {
 		if p == "*" || p == permission {
@@ -669,48 +674,48 @@ func permitted(u staff, permission string) bool {
 	}
 	return false
 }
-func (app *application) auditLogs(w http.ResponseWriter, r *http.Request) {
-	u := currentStaff(r)
+func (app *application) auditLogs(c *gin.Context) {
+	u := currentStaff(c)
 	if !permitted(u, "audit:view") {
-		fail(w, 403, "当前角色没有查看审计记录的权限")
+		fail(c, 403, "当前角色没有查看审计记录的权限")
 		return
 	}
 	query := `SELECT a.id,a.order_id,a.user_id,COALESCE(s.name,a.user_id),COALESCE(s.role,''),a.action,a.created_at
 		FROM audit_logs a LEFT JOIN staff_accounts s ON s.id=a.user_id WHERE 1=1`
 	args := []any{}
-	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
+	from, to := c.Query("from"), c.Query("to")
 	if from != "" || to != "" {
 		fromDate, fromErr := time.Parse("2006-01-02", from)
 		toDate, toErr := time.Parse("2006-01-02", to)
 		if fromErr != nil || toErr != nil || fromDate.After(toDate) || toDate.Sub(fromDate) > 89*24*time.Hour {
-			fail(w, 400, "审计日期范围需为 1–90 天")
+			fail(c, 400, "审计日期范围需为 1–90 天")
 			return
 		}
 		query += " AND a.created_at>=? AND a.created_at<?"
 		args = append(args, from+"T00:00:00", toDate.AddDate(0, 0, 1).Format("2006-01-02")+"T00:00:00")
 	}
-	if userID := strings.TrimSpace(r.URL.Query().Get("userId")); userID != "" {
+	if userID := strings.TrimSpace(c.Query("userId")); userID != "" {
 		if len(userID) > 64 {
-			fail(w, 400, "员工筛选条件不正确")
+			fail(c, 400, "员工筛选条件不正确")
 			return
 		}
 		query += " AND a.user_id=?"
 		args = append(args, userID)
 	}
-	switch category := r.URL.Query().Get("category"); category {
+	switch category := c.Query("category"); category {
 	case "", "all":
 	case "payment":
 		query += " AND (a.action LIKE '%收款%' OR a.action LIKE '%退款%')"
 	case "refund":
 		query += " AND a.action LIKE '%退款%'"
 	default:
-		fail(w, 400, "审计类型筛选条件不正确")
+		fail(c, 400, "审计类型筛选条件不正确")
 		return
 	}
 	query += " ORDER BY a.rowid DESC LIMIT 500"
-	rows, err := app.store.db.QueryContext(r.Context(), query, args...)
+	rows, err := app.store.db.QueryContext(c.Request.Context(), query, args...)
 	if err != nil {
-		fail(w, 500, "读取审计记录失败")
+		fail(c, 500, "读取审计记录失败")
 		return
 	}
 	defer rows.Close()
@@ -719,7 +724,7 @@ func (app *application) auditLogs(w http.ResponseWriter, r *http.Request) {
 		var log auditLog
 		var role string
 		if err := rows.Scan(&log.ID, &log.OrderID, &log.UserID, &log.UserName, &role, &log.Action, &log.CreatedAt); err != nil {
-			fail(w, 500, "审计记录数据异常")
+			fail(c, 500, "审计记录数据异常")
 			return
 		}
 		if definition, ok := rolePermissions[role]; ok {
@@ -728,27 +733,27 @@ func (app *application) auditLogs(w http.ResponseWriter, r *http.Request) {
 		logs = append(logs, log)
 	}
 	if rows.Err() != nil {
-		fail(w, 500, "读取审计记录失败")
+		fail(c, 500, "读取审计记录失败")
 		return
 	}
-	writeJSON(w, 200, response{"logs": logs, "from": from, "to": to})
+	writeJSON(c, 200, response{"logs": logs, "from": from, "to": to})
 }
 
-func requireOwner(w http.ResponseWriter, r *http.Request) bool {
-	if !permitted(currentStaff(r), "staff:manage") {
-		fail(w, http.StatusForbidden, "只有店长可以管理员工账号")
+func requireOwner(c *gin.Context) bool {
+	if !permitted(currentStaff(c), "staff:manage") {
+		fail(c, http.StatusForbidden, "只有店长可以管理员工账号")
 		return false
 	}
 	return true
 }
 
-func (app *application) listStaff(w http.ResponseWriter, r *http.Request) {
-	if !requireOwner(w, r) {
+func (app *application) listStaff(c *gin.Context) {
+	if !requireOwner(c) {
 		return
 	}
-	rows, err := app.store.db.QueryContext(r.Context(), "SELECT id,name,role,active,created_at FROM staff_accounts ORDER BY active DESC, rowid")
+	rows, err := app.store.db.QueryContext(c.Request.Context(), "SELECT id,name,role,active,created_at FROM staff_accounts ORDER BY active DESC, rowid")
 	if err != nil {
-		fail(w, 500, "读取员工失败")
+		fail(c, 500, "读取员工失败")
 		return
 	}
 	defer rows.Close()
@@ -757,14 +762,14 @@ func (app *application) listStaff(w http.ResponseWriter, r *http.Request) {
 		var account staffAccount
 		var active int
 		if err := rows.Scan(&account.ID, &account.Name, &account.Role, &active, &account.CreatedAt); err != nil {
-			fail(w, 500, "员工数据异常")
+			fail(c, 500, "员工数据异常")
 			return
 		}
 		role := rolePermissions[account.Role]
 		account.RoleName, account.Permissions, account.Active = role.Name, role.Permissions, active == 1
 		accounts = append(accounts, account)
 	}
-	writeJSON(w, 200, response{"staff": accounts})
+	writeJSON(c, 200, response{"staff": accounts})
 }
 
 func validateStaffInput(name, role, pin string) error {
@@ -780,8 +785,8 @@ func validateStaffInput(name, role, pin string) error {
 	return nil
 }
 
-func (app *application) createStaff(w http.ResponseWriter, r *http.Request) {
-	if !requireOwner(w, r) {
+func (app *application) createStaff(c *gin.Context) {
+	if !requireOwner(c) {
 		return
 	}
 	var req struct {
@@ -789,31 +794,31 @@ func (app *application) createStaff(w http.ResponseWriter, r *http.Request) {
 		Role string `json:"role"`
 		Pin  string `json:"pin"`
 	}
-	if !decode(w, r, &req) {
+	if !decode(c, &req) {
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if err := validateStaffInput(req.Name, req.Role, req.Pin); err != nil {
-		fail(w, 400, err.Error())
+		fail(c, 400, err.Error())
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Pin), bcrypt.DefaultCost)
 	if err != nil {
-		fail(w, 500, "生成员工口令失败")
+		fail(c, 500, "生成员工口令失败")
 		return
 	}
 	id := "staff-" + randomID()[:12]
 	createdAt := time.Now().Format(time.RFC3339)
-	if _, err = app.store.db.ExecContext(r.Context(), "INSERT INTO staff_accounts(id,name,role,pin_hash,active,created_at) VALUES (?,?,?,?,1,?)", id, req.Name, req.Role, string(hash), createdAt); err != nil {
-		fail(w, 500, "创建员工失败")
+	if _, err = app.store.db.ExecContext(c.Request.Context(), "INSERT INTO staff_accounts(id,name,role,pin_hash,active,created_at) VALUES (?,?,?,?,1,?)", id, req.Name, req.Role, string(hash), createdAt); err != nil {
+		fail(c, 500, "创建员工失败")
 		return
 	}
 	profile, _ := app.store.staffByID(id, true)
-	writeJSON(w, http.StatusCreated, response{"staff": staffAccount{staff: profile, Active: true, CreatedAt: createdAt}})
+	writeJSON(c, http.StatusCreated, response{"staff": staffAccount{staff: profile, Active: true, CreatedAt: createdAt}})
 }
 
-func (app *application) updateStaff(w http.ResponseWriter, r *http.Request) {
-	if !requireOwner(w, r) {
+func (app *application) updateStaff(c *gin.Context) {
+	if !requireOwner(c) {
 		return
 	}
 	var req struct {
@@ -822,14 +827,14 @@ func (app *application) updateStaff(w http.ResponseWriter, r *http.Request) {
 		Pin    *string `json:"pin"`
 		Active *bool   `json:"active"`
 	}
-	if !decode(w, r, &req) {
+	if !decode(c, &req) {
 		return
 	}
-	id := r.PathValue("id")
+	id := c.Param("id")
 	var name, role, hash, createdAt string
 	var active int
-	if err := app.store.db.QueryRowContext(r.Context(), "SELECT name,role,pin_hash,active,created_at FROM staff_accounts WHERE id=?", id).Scan(&name, &role, &hash, &active, &createdAt); err != nil {
-		fail(w, 404, "员工不存在")
+	if err := app.store.db.QueryRowContext(c.Request.Context(), "SELECT name,role,pin_hash,active,created_at FROM staff_accounts WHERE id=?", id).Scan(&name, &role, &hash, &active, &createdAt); err != nil {
+		fail(c, 404, "员工不存在")
 		return
 	}
 	if req.Name != nil {
@@ -843,13 +848,13 @@ func (app *application) updateStaff(w http.ResponseWriter, r *http.Request) {
 		pin = *req.Pin
 	}
 	if err := validateStaffInput(name, role, pin); err != nil {
-		fail(w, 400, err.Error())
+		fail(c, 400, err.Error())
 		return
 	}
 	if req.Pin != nil {
 		encoded, err := bcrypt.GenerateFromPassword([]byte(*req.Pin), bcrypt.DefaultCost)
 		if err != nil {
-			fail(w, 500, "生成员工口令失败")
+			fail(c, 500, "生成员工口令失败")
 			return
 		}
 		hash = string(encoded)
@@ -858,42 +863,42 @@ func (app *application) updateStaff(w http.ResponseWriter, r *http.Request) {
 		if *req.Active {
 			active = 1
 		} else {
-			if id == currentStaff(r).ID {
-				fail(w, 409, "不能停用当前登录账号")
+			if id == currentStaff(c).ID {
+				fail(c, 409, "不能停用当前登录账号")
 				return
 			}
 			if role == "owner" {
 				var owners int
 				app.store.db.QueryRow("SELECT COUNT(*) FROM staff_accounts WHERE role='owner' AND active=1").Scan(&owners)
 				if owners <= 1 {
-					fail(w, 409, "至少保留一个启用的店长账号")
+					fail(c, 409, "至少保留一个启用的店长账号")
 					return
 				}
 			}
 			active = 0
 		}
 	}
-	if _, err := app.store.db.ExecContext(r.Context(), "UPDATE staff_accounts SET name=?,role=?,pin_hash=?,active=? WHERE id=?", name, role, hash, active, id); err != nil {
-		fail(w, 500, "更新员工失败")
+	if _, err := app.store.db.ExecContext(c.Request.Context(), "UPDATE staff_accounts SET name=?,role=?,pin_hash=?,active=? WHERE id=?", name, role, hash, active, id); err != nil {
+		fail(c, 500, "更新员工失败")
 		return
 	}
 	if req.Pin != nil || active == 0 {
-		app.store.db.ExecContext(r.Context(), "DELETE FROM sessions WHERE user_id=?", id)
+		app.store.db.ExecContext(c.Request.Context(), "DELETE FROM sessions WHERE user_id=?", id)
 	}
 	profile, _ := app.store.staffByID(id, false)
-	writeJSON(w, 200, response{"staff": staffAccount{staff: profile, Active: active == 1, CreatedAt: createdAt}})
+	writeJSON(c, 200, response{"staff": staffAccount{staff: profile, Active: active == 1, CreatedAt: createdAt}})
 }
 func businessDate() string {
 	loc := time.FixedZone("Asia/Shanghai", 8*3600)
 	return time.Now().In(loc).Add(-6 * time.Hour).Format("2006-01-02")
 }
-func (app *application) state(w http.ResponseWriter, r *http.Request) {
-	u := currentStaff(r)
+func (app *application) state(c *gin.Context) {
+	u := currentStaff(c)
 	day := businessDate()
 	rev := app.store.revision()
-	if raw := strings.TrimSpace(r.URL.Query().Get("rev")); raw != "" {
+	if raw := strings.TrimSpace(c.Query("rev")); raw != "" {
 		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 && parsed == rev {
-			writeJSON(w, 200, response{"unchanged": true, "rev": rev, "businessDate": day})
+			writeJSON(c, 200, response{"unchanged": true, "rev": rev, "businessDate": day})
 			return
 		}
 	}
@@ -904,9 +909,9 @@ func (app *application) state(w http.ResponseWriter, r *http.Request) {
 		args = append(args, u.ID)
 	}
 	query += " ORDER BY rowid DESC LIMIT 500"
-	rows, err := app.store.db.QueryContext(r.Context(), query, args...)
+	rows, err := app.store.db.QueryContext(c.Request.Context(), query, args...)
 	if err != nil {
-		fail(w, 500, "读取订单失败")
+		fail(c, 500, "读取订单失败")
 		return
 	}
 	defer rows.Close()
@@ -915,7 +920,7 @@ func (app *application) state(w http.ResponseWriter, r *http.Request) {
 		var raw string
 		var o order
 		if rows.Scan(&raw) != nil || json.Unmarshal([]byte(raw), &o) != nil {
-			fail(w, 500, "订单数据异常")
+			fail(c, 500, "订单数据异常")
 			return
 		}
 		if o.DurationMinutes == 0 {
@@ -927,15 +932,15 @@ func (app *application) state(w http.ResponseWriter, r *http.Request) {
 		orders = append(orders, o)
 	}
 	if rows.Err() != nil {
-		fail(w, 500, "读取订单失败")
+		fail(c, 500, "读取订单失败")
 		return
 	}
-	products, err := app.readProducts(r.Context(), true)
+	products, err := app.readProducts(c.Request.Context(), true)
 	if err != nil {
-		fail(w, 500, "读取商品失败")
+		fail(c, 500, "读取商品失败")
 		return
 	}
-	writeJSON(w, 200, response{"orders": orders, "tables": tables, "products": products, "businessDate": day, "updatedAt": time.Now().Format(time.RFC3339), "mode": "role-test", "currentUser": u, "rev": rev, "unchanged": false})
+	writeJSON(c, 200, response{"orders": orders, "tables": tables, "products": products, "businessDate": day, "updatedAt": time.Now().Format(time.RFC3339), "mode": "role-test", "currentUser": u, "rev": rev, "unchanged": false})
 }
 
 func escapeLike(value string) string {
@@ -944,29 +949,29 @@ func escapeLike(value string) string {
 	return strings.ReplaceAll(value, `_`, `\_`)
 }
 
-func (app *application) listOrders(w http.ResponseWriter, r *http.Request) {
-	u := currentStaff(r)
+func (app *application) listOrders(c *gin.Context) {
+	u := currentStaff(c)
 	limit := 20
-	if raw := r.URL.Query().Get("limit"); raw != "" {
+	if raw := c.Query("limit"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 || parsed > 100 {
-			fail(w, 400, "分页数量需为 1–100")
+			fail(c, 400, "分页数量需为 1–100")
 			return
 		}
 		limit = parsed
 	}
 	query := "SELECT rowid,body FROM orders WHERE 1=1"
 	args := []any{}
-	if raw := r.URL.Query().Get("cursor"); raw != "" {
+	if raw := c.Query("cursor"); raw != "" {
 		cursor, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil || cursor < 1 {
-			fail(w, 400, "分页游标不正确")
+			fail(c, 400, "分页游标不正确")
 			return
 		}
 		query += " AND rowid<?"
 		args = append(args, cursor)
 	}
-	switch status := r.URL.Query().Get("status"); status {
+	switch status := c.Query("status"); status {
 	case "", "all":
 	case "active":
 		query += " AND status IN ('arrived','serving','cleaning')"
@@ -976,23 +981,23 @@ func (app *application) listOrders(w http.ResponseWriter, r *http.Request) {
 		query += " AND status=?"
 		args = append(args, status)
 	default:
-		fail(w, 400, "订单状态筛选条件不正确")
+		fail(c, 400, "订单状态筛选条件不正确")
 		return
 	}
-	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
+	from, to := c.Query("from"), c.Query("to")
 	if from != "" || to != "" {
 		fromDate, fromErr := time.Parse("2006-01-02", from)
 		toDate, toErr := time.Parse("2006-01-02", to)
 		if fromErr != nil || toErr != nil || fromDate.After(toDate) || toDate.Sub(fromDate) > 365*24*time.Hour {
-			fail(w, 400, "订单日期范围需为 1–366 天")
+			fail(c, 400, "订单日期范围需为 1–366 天")
 			return
 		}
 		query += " AND date BETWEEN ? AND ?"
 		args = append(args, from, to)
 	}
-	if keyword := strings.TrimSpace(r.URL.Query().Get("q")); keyword != "" {
+	if keyword := strings.TrimSpace(c.Query("q")); keyword != "" {
 		if len([]rune(keyword)) > 40 {
-			fail(w, 400, "搜索关键词最多 40 个字符")
+			fail(c, 400, "搜索关键词最多 40 个字符")
 			return
 		}
 		like := "%" + escapeLike(keyword) + "%"
@@ -1005,9 +1010,9 @@ func (app *application) listOrders(w http.ResponseWriter, r *http.Request) {
 	}
 	query += " ORDER BY rowid DESC LIMIT ?"
 	args = append(args, limit+1)
-	rows, err := app.store.db.QueryContext(r.Context(), query, args...)
+	rows, err := app.store.db.QueryContext(c.Request.Context(), query, args...)
 	if err != nil {
-		fail(w, 500, "读取订单列表失败")
+		fail(c, 500, "读取订单列表失败")
 		return
 	}
 	defer rows.Close()
@@ -1018,7 +1023,7 @@ func (app *application) listOrders(w http.ResponseWriter, r *http.Request) {
 		var raw string
 		var o order
 		if rows.Scan(&rowID, &raw) != nil || json.Unmarshal([]byte(raw), &o) != nil {
-			fail(w, 500, "订单列表数据异常")
+			fail(c, 500, "订单列表数据异常")
 			return
 		}
 		if o.DurationMinutes == 0 {
@@ -1031,7 +1036,7 @@ func (app *application) listOrders(w http.ResponseWriter, r *http.Request) {
 		nextCursor = strconv.FormatInt(rowIDs[limit-1], 10)
 		orders = orders[:limit]
 	}
-	writeJSON(w, 200, response{"orders": orders, "nextCursor": nextCursor})
+	writeJSON(c, 200, response{"orders": orders, "nextCursor": nextCursor})
 }
 func (app *application) priced(tx *sql.Tx, input []item) ([]item, error) {
 	out := []item{}
@@ -1065,26 +1070,26 @@ func amount(o order) int {
 	}
 	return n
 }
-func (app *application) writeOrder(w http.ResponseWriter, r *http.Request, action func(*sql.Tx) (order, error)) {
-	key := r.Header.Get("Idempotency-Key")
+func (app *application) writeOrder(c *gin.Context, action func(*sql.Tx) (order, error)) {
+	key := c.GetHeader("Idempotency-Key")
 	if len(key) < 8 || len(key) > 128 {
-		fail(w, 400, "缺少有效请求标识")
+		fail(c, 400, "缺少有效请求标识")
 		return
 	}
-	raw, err := io.ReadAll(io.LimitReader(r.Body, 32769))
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, 32769))
 	if err != nil || len(raw) > 32768 {
-		fail(w, 400, "请求过大")
+		fail(c, 400, "请求过大")
 		return
 	}
-	r.Body = io.NopCloser(strings.NewReader(string(raw)))
-	sum := sha256.Sum256(append([]byte(r.URL.Path), raw...))
+	c.Request.Body = io.NopCloser(strings.NewReader(string(raw)))
+	sum := sha256.Sum256(append([]byte(c.Request.URL.Path), raw...))
 	finger := hex.EncodeToString(sum[:])
 	s := app.store
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	tx, err := s.db.BeginTx(r.Context(), nil)
+	tx, err := s.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		fail(w, 500, "数据库暂不可用")
+		fail(c, 500, "数据库暂不可用")
 		return
 	}
 	defer tx.Rollback()
@@ -1092,15 +1097,14 @@ func (app *application) writeOrder(w http.ResponseWriter, r *http.Request, actio
 	err = tx.QueryRow("SELECT fingerprint,body FROM requests WHERE key=?", key).Scan(&previous, &body)
 	if err == nil {
 		if previous != finger {
-			fail(w, 409, "请求标识已被使用")
+			fail(c, 409, "请求标识已被使用")
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(body))
+		c.Data(http.StatusOK, "application/json", []byte(body))
 		return
 	}
 	if err != sql.ErrNoRows {
-		fail(w, 500, "读取请求失败")
+		fail(c, 500, "读取请求失败")
 		return
 	}
 	o, err := action(tx)
@@ -1109,12 +1113,12 @@ func (app *application) writeOrder(w http.ResponseWriter, r *http.Request, actio
 		if strings.Contains(err.Error(), "权限") {
 			status = http.StatusForbidden
 		}
-		fail(w, status, err.Error())
+		fail(c, status, err.Error())
 		return
 	}
 	startMinute, endMinute, scheduleErr := orderSchedule(o.ArrivalTime, o.DurationMinutes)
 	if scheduleErr != nil {
-		fail(w, http.StatusConflict, scheduleErr.Error())
+		fail(c, http.StatusConflict, scheduleErr.Error())
 		return
 	}
 	if o.DurationMinutes == 0 {
@@ -1123,51 +1127,51 @@ func (app *application) writeOrder(w http.ResponseWriter, r *http.Request, actio
 	if o.Status != "completed" && o.Status != "cancelled" {
 		var overlap int
 		if err = tx.QueryRow(`SELECT COUNT(*) FROM orders WHERE table_id=? AND date=? AND id<>? AND status NOT IN ('completed','cancelled') AND start_minute<? AND end_minute>?`, o.TableID, o.Date, o.ID, endMinute, startMinute).Scan(&overlap); err != nil {
-			fail(w, 500, "检查台位时段失败")
+			fail(c, 500, "检查台位时段失败")
 			return
 		}
 		if overlap > 0 {
-			fail(w, http.StatusConflict, "该台位在所选时段已被占用，请调整时间或台位")
+			fail(c, http.StatusConflict, "该台位在所选时段已被占用，请调整时间或台位")
 			return
 		}
 	}
 	payload, err := json.Marshal(o)
 	if err != nil {
-		fail(w, 500, "保存失败")
+		fail(c, 500, "保存失败")
 		return
 	}
 	_, err = tx.Exec("INSERT INTO orders(id,table_id,date,status,body,start_minute,end_minute,created_by,customer_name,phone) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET table_id=excluded.table_id,date=excluded.date,status=excluded.status,body=excluded.body,start_minute=excluded.start_minute,end_minute=excluded.end_minute,created_by=excluded.created_by,customer_name=excluded.customer_name,phone=excluded.phone", o.ID, o.TableID, o.Date, o.Status, string(payload), startMinute, endMinute, o.CreatedBy, o.CustomerName, o.Phone)
 	if err != nil {
-		fail(w, 409, "该台位在所选营业日已被占用，请重新选择")
+		fail(c, 409, "该台位在所选营业日已被占用，请重新选择")
 		return
 	}
-	u := currentStaff(r)
+	u := currentStaff(c)
 	latest := o.Events[len(o.Events)-1]
 	if _, err = tx.Exec("INSERT INTO audit_logs VALUES (?,?,?,?,?)", randomID(), o.ID, u.ID, latest.Action, latest.At); err != nil {
-		fail(w, 500, "操作日志保存失败")
+		fail(c, 500, "操作日志保存失败")
 		return
 	}
 	result, _ := json.Marshal(response{"order": o})
 	if _, err = tx.Exec("INSERT INTO requests VALUES (?,?,?)", key, finger, string(result)); err != nil {
-		fail(w, 500, "保存请求失败")
+		fail(c, 500, "保存请求失败")
 		return
 	}
 	if err = tx.Commit(); err != nil {
-		fail(w, 500, "提交失败，请重试")
+		fail(c, 500, "提交失败，请重试")
 		return
 	}
 	s.bump(nil)
-	writeJSON(w, 200, response{"order": o})
+	writeJSON(c, 200, response{"order": o})
 }
-func (app *application) createBooking(w http.ResponseWriter, r *http.Request) {
-	u := currentStaff(r)
+func (app *application) createBooking(c *gin.Context) {
+	u := currentStaff(c)
 	if !permitted(u, "order:create") {
-		fail(w, 403, "当前角色没有创建预订权限")
+		fail(c, 403, "当前角色没有创建预订权限")
 		return
 	}
-	app.writeOrder(w, r, func(tx *sql.Tx) (order, error) {
+	app.writeOrder(c, func(tx *sql.Tx) (order, error) {
 		var o order
-		d := json.NewDecoder(r.Body)
+		d := json.NewDecoder(c.Request.Body)
 		if d.Decode(&o) != nil {
 			return o, errors.New("预订格式不正确")
 		}
@@ -1217,12 +1221,12 @@ func (app *application) createBooking(w http.ResponseWriter, r *http.Request) {
 		return o, nil
 	})
 }
-func (app *application) mutateOrder(w http.ResponseWriter, r *http.Request) {
-	u := currentStaff(r)
-	app.writeOrder(w, r, func(tx *sql.Tx) (order, error) {
+func (app *application) mutateOrder(c *gin.Context) {
+	u := currentStaff(c)
+	app.writeOrder(c, func(tx *sql.Tx) (order, error) {
 		var o order
 		var raw string
-		if tx.QueryRow("SELECT body FROM orders WHERE id=?", r.PathValue("id")).Scan(&raw) != nil {
+		if tx.QueryRow("SELECT body FROM orders WHERE id=?", c.Param("id")).Scan(&raw) != nil {
 			return o, errors.New("订单不存在")
 		}
 		if json.Unmarshal([]byte(raw), &o) != nil {
@@ -1244,13 +1248,13 @@ func (app *application) mutateOrder(w http.ResponseWriter, r *http.Request) {
 			DurationMinutes int    `json:"durationMinutes"`
 			Remark          string `json:"remark"`
 		}
-		if json.NewDecoder(r.Body).Decode(&req) != nil {
+		if json.NewDecoder(c.Request.Body).Decode(&req) != nil {
 			return o, errors.New("请求格式不正确")
 		}
 		if req.Version != o.Version {
 			return o, errors.New("订单已被更新，请刷新后重试")
 		}
-		action := r.PathValue("action")
+		action := c.Param("action")
 		permission := map[string]string{"update-booking": "order:update", "confirm-arrival": "order:confirm-arrival", "open-table": "table:open", "change-table": "order:change-table", "cancel": "order:cancel", "complete-cleaning": "table:clean", "items": "order:add-item", "checkout": "payment:checkout", "refund": "payment:refund"}[action]
 		allowed := permitted(u, permission)
 		if action == "update-booking" && permitted(u, "order:update-own") && o.CreatedBy == u.ID {
